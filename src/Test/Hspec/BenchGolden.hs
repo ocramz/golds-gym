@@ -232,11 +232,9 @@ fromBenchResult result = case result of
     in Result (info ++ warningInfo) Success
 
   Regression golden actual pctChange tolerance ->
-    Result "Performance regression detected"
-      (Failure Nothing (ExpectedButGot
-        (Just $ printf "Mean time increased by %.1f%% (tolerance: %.1f%%)" pctChange tolerance)
-        (formatStats golden)
-        (formatStats actual)))
+    let message = printf "Mean time increased by %.1f%% (tolerance: %.1f%%)\n\n%s"
+                    pctChange tolerance (formatRegression golden actual)
+    in Result message (Failure Nothing (Reason message))
 
   Improvement golden actual pctChange tolerance ->
     -- Improvements are still success, but notable
@@ -247,6 +245,53 @@ fromBenchResult result = case result of
 -- | Format statistics for the first run.
 formatFirstRun :: GoldenStats -> String
 formatFirstRun stats = "First run - baseline created\n" ++ formatStats stats
+
+-- | Format a regression comparison with full details.
+formatRegression :: GoldenStats -> GoldenStats -> String
+formatRegression golden actual =
+  let meanDiff = if statsMean golden == 0
+                 then 0
+                 else ((statsMean actual - statsMean golden) / statsMean golden) * 100
+      stddevDiff = if statsStddev golden == 0
+                   then 0
+                   else ((statsStddev actual - statsStddev golden) / statsStddev golden) * 100
+      medianDiff = if statsMedian golden == 0
+                   then 0
+                   else ((statsMedian actual - statsMedian golden) / statsMedian golden) * 100
+      
+      -- Create detailed comparison table
+      metricCol = Box.vcat Box.left $ map Box.text 
+        ["Metric", "------", "Mean", "Stddev", "Median", "Min", "Max"]
+      actualCol = Box.vcat Box.right $ map Box.text 
+        [ "Actual"
+        , "------"
+        , printf "%.3f ms" (statsMean actual)
+        , printf "%.3f ms" (statsStddev actual)
+        , printf "%.3f ms" (statsMedian actual)
+        , printf "%.3f ms" (statsMin actual)
+        , printf "%.3f ms" (statsMax actual)
+        ]
+      baselineCol = Box.vcat Box.right $ map Box.text
+        [ "Baseline"
+        , "--------"
+        , printf "%.3f ms" (statsMean golden)
+        , printf "%.3f ms" (statsStddev golden)
+        , printf "%.3f ms" (statsMedian golden)
+        , printf "%.3f ms" (statsMin golden)
+        , printf "%.3f ms" (statsMax golden)
+        ]
+      diffCol = Box.vcat Box.right $ map Box.text
+        [ "Diff"
+        , "----"
+        , printf "%+.1f%%" meanDiff
+        , printf "%+.1f%%" stddevDiff
+        , printf "%+.1f%%" medianDiff
+        , ""
+        , ""
+        ]
+      
+      table = Box.hsep 2 Box.top [metricCol, actualCol, baselineCol, diffCol]
+  in Box.render table
 
 -- | Format a passing comparison.
 formatPass :: GoldenStats -> GoldenStats -> String

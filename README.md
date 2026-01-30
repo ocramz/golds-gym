@@ -17,16 +17,6 @@ A Haskell golden testing framework for performance benchmarks.
 - JSON-based golden files for easy inspection
 - Seamless integration with hspec
 
-## Installation
-
-Add to your `.cabal` file:
-
-```cabal
-test-suite my-benchmarks
-    build-depends:
-        golds-gym,
-        hspec
-```
 
 ## Usage
 
