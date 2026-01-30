@@ -14,8 +14,9 @@
 -- = Overview
 --
 -- @golds-gym@ is a framework for golden testing of performance benchmarks.
--- It integrates with hspec to provide a familiar testing experience while
--- using benchpress for accurate timing measurements.
+-- It integrates with hspec and uses benchpress for lightweight timing measurements.
+--
+-- Optionally, benchmarks can use robust statistics to mitigate the impact of outliers.
 --
 -- = Quick Start
 --
@@ -25,8 +26,8 @@
 --
 -- main :: IO ()
 -- main = hspec $ do
---   describe "Performance" $ do
---     benchGolden "my algorithm" $
+--   describe \"Performance\" $ do
+--     `benchGolden` "my algorithm" $
 --       return $ myAlgorithm input
 -- @
 --
