@@ -1,5 +1,7 @@
 # golds-gym 🏋️
 
+[![CI](https://github.com/ocramz/golds-gym/actions/workflows/ci.yml/badge.svg)](https://github.com/ocramz/golds-gym/actions/workflows/ci.yml)
+
 A Haskell golden testing framework for performance benchmarks.
 
 ## Overview

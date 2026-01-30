@@ -110,6 +110,7 @@ getCPUModel = do
   return Nothing
 #endif
 
+#if defined(darwin_HOST_OS)
 -- | Get CPU model on macOS using sysctl.
 getDarwinCPUModel :: IO (Maybe Text)
 getDarwinCPUModel = do
@@ -127,6 +128,7 @@ getDarwinCPUModel = do
             _ -> return Nothing
         Just chip -> return $ Just $ cleanCPUName chip
     Just name -> return $ Just $ cleanCPUName name
+#endif
 
 #if defined(linux_HOST_OS)
 -- | Get CPU model on Linux by parsing /proc/cpuinfo.
