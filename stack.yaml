@@ -1,0 +1,7 @@
+resolver: lts-24.29
+
+packages:
+  - .
+
+extra-deps:
+  - benchpress-0.2.3.0
