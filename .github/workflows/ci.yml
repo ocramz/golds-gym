@@ -9,13 +9,24 @@ on:
 
 jobs:
   build:
-    name: Build and Test
+    name: ${{ matrix.os }} / ${{ matrix.resolver }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
-        # Test with multiple GHC versions if desired
-        ghc: ['9.10.3']
+        os: [ubuntu-latest, macos-latest]
+        resolver:
+          - lts-24.29  # GHC 9.10.3 (latest)
+          - lts-23.17  # GHC 9.8.4
+          - lts-22.45  # GHC 9.6.6
+          - lts-21.25  # GHC 9.4.8
+        exclude:
+          # Run full matrix on Linux, but only latest on macOS
+          - os: macos-latest
+            resolver: lts-23.17
+          - os: macos-latest
+            resolver: lts-22.45
+          - os: macos-latest
+            resolver: lts-21.25
       fail-fast: false
 
     steps:
@@ -28,14 +39,21 @@ jobs:
         enable-stack: true
         stack-version: 'latest'
 
+    - name: Override stack.yaml resolver
+      run: |
+        echo "resolver: ${{ matrix.resolver }}" > stack.yaml.ci
+        cat stack.yaml | grep -v '^resolver:' >> stack.yaml.ci
+        mv stack.yaml.ci stack.yaml
+
     - name: Cache Stack dependencies
       uses: actions/cache@v4
       with:
         path: |
           ~/.stack
           .stack-work
-        key: ${{ runner.os }}-stack-${{ hashFiles('stack.yaml', 'stack.yaml.lock', 'golds-gym.cabal') }}
+        key: ${{ runner.os }}-${{ matrix.resolver }}-stack-${{ hashFiles('stack.yaml', 'stack.yaml.lock', 'golds-gym.cabal') }}
         restore-keys: |
+          ${{ runner.os }}-${{ matrix.resolver }}-stack-
           ${{ runner.os }}-stack-
 
     - name: Build project
@@ -46,12 +64,12 @@ jobs:
 
     - name: Build documentation
       run: make docs
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-latest' && matrix.resolver == 'lts-24.29'
 
     - name: Archive golden files
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: golden-files-${{ matrix.os }}
+        name: golden-files-${{ matrix.os }}-${{ matrix.resolver }}
         path: .golden/
         retention-days: 7
