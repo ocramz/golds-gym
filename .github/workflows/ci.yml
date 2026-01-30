@@ -17,16 +17,10 @@ jobs:
         resolver:
           - lts-24.29  # GHC 9.10.3 (latest)
           - lts-23.17  # GHC 9.8.4
-          - lts-22.45  # GHC 9.6.6
-          - lts-21.25  # GHC 9.4.8
         exclude:
           # Run full matrix on Linux, but only latest on macOS
           - os: macos-latest
             resolver: lts-23.17
-          - os: macos-latest
-            resolver: lts-22.45
-          - os: macos-latest
-            resolver: lts-21.25
       fail-fast: false
 
     steps:

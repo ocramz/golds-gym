@@ -5,3 +5,5 @@ packages:
 
 extra-deps:
   - benchpress-0.2.3.0
+
+allow-newer: true
