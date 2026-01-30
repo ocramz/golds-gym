@@ -34,9 +34,12 @@ spec = do
       _ <- evaluate $ sort [1000, 999..1 :: Int]
       return ()
 
-    -- Benchmark with variance warnings disabled
+    -- Benchmark with robust statistics for operations prone to outliers
     benchGoldenWith defaultBenchConfig
-      { warnOnVarianceChange = False
+      { useRobustStatistics = True
+      , trimPercent = 10.0
+      , outlierThreshold = 3.0
+      , warnOnVarianceChange = False
       }
       "sort already sorted" $ do
       _ <- evaluate $ sort [1..1000 :: Int]
@@ -93,6 +96,41 @@ spec = do
       }
       "robust mode - with potential outliers" $ do
       _ <- evaluate $ fib 25
+      return ()
+
+  describe "Tolerance Configuration" $ do
+    -- Hybrid tolerance (default): pass if within ±15% OR ±0.01ms
+    benchGolden "hybrid tolerance - fast operation" $ do
+      _ <- evaluate $ sum [1..100 :: Int]
+      return ()
+
+    -- Percentage-only tolerance: disable absolute tolerance
+    -- Note: This test may fail occasionally due to measurement noise,
+    -- demonstrating why hybrid tolerance is the recommended default
+    benchGoldenWith defaultBenchConfig
+      { absoluteToleranceMs = Nothing
+      , tolerancePercent = 30.0  -- Increased to reduce false failures
+      }
+      "percentage-only tolerance" $ do
+      _ <- evaluate $ sum [1..500 :: Int]
+      return ()
+
+    -- Strict absolute tolerance: 1 microsecond
+    benchGoldenWith defaultBenchConfig
+      { absoluteToleranceMs = Just 0.001  -- 1 microsecond
+      , tolerancePercent = 10.0
+      }
+      "strict absolute tolerance" $ do
+      _ <- evaluate $ fib 20
+      return ()
+
+    -- Relaxed absolute tolerance for CI environments
+    benchGoldenWith defaultBenchConfig
+      { absoluteToleranceMs = Just 0.1  -- 100 microseconds
+      , tolerancePercent = 25.0
+      }
+      "relaxed tolerance for CI" $ do
+      _ <- evaluate $ reverse [1..1000 :: Int]
       return ()
 
 -- | Naive Fibonacci for benchmarking purposes.

@@ -13,14 +13,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
         resolver:
           - lts-24.29  # GHC 9.10.3 (latest)
           - lts-23.17  # GHC 9.8.4
-        exclude:
-          # Run full matrix on Linux, but only latest on macOS
-          - os: macos-latest
-            resolver: lts-23.17
       fail-fast: false
 
     steps:

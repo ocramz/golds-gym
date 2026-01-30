@@ -57,6 +57,13 @@ data BenchConfig = BenchConfig
     -- ^ Number of warm-up iterations (discarded before measurement)
   , tolerancePercent      :: !Double
     -- ^ Allowed deviation in mean time (as percentage, e.g., 15.0 = ±15%)
+  , absoluteToleranceMs   :: !(Maybe Double)
+    -- ^ Minimum absolute tolerance in milliseconds (e.g., 0.01 = 10 microseconds).
+    --   When set, benchmarks pass if EITHER the percentage difference is within
+    --   'tolerancePercent' OR the absolute time difference is within this threshold.
+    --   This prevents false failures for extremely fast operations (< 1ms) where
+    --   measurement noise causes large percentage variations despite negligible
+    --   absolute time differences. Set to 'Nothing' to disable (percentage-only).
   , warnOnVarianceChange  :: !Bool
     -- ^ Whether to emit warnings when stddev changes significantly
   , varianceTolerancePercent :: !Double
@@ -78,14 +85,26 @@ data BenchConfig = BenchConfig
 -- * 100 iterations
 -- * 5 warm-up iterations
 -- * 15% tolerance on mean time
+-- * 0.01 ms (10 microseconds) absolute tolerance - prevents false failures for fast operations
 -- * Variance warnings enabled at 50% tolerance
 -- * Output to @.golden/@ directory
 -- * Success on first run (creates baseline)
+--
+-- = Hybrid Tolerance Strategy
+--
+-- The default configuration uses BOTH percentage and absolute tolerance:
+--
+-- * Benchmarks pass if mean time is within ±15% OR within ±0.01ms
+-- * This prevents measurement noise from failing fast operations (< 1ms)
+-- * For slower operations (> 1ms), percentage tolerance dominates
+--
+-- Set @absoluteToleranceMs = Nothing@ for percentage-only comparison.
 defaultBenchConfig :: BenchConfig
 defaultBenchConfig = BenchConfig
   { iterations            = 100
   , warmupIterations      = 5
   , tolerancePercent      = 15.0
+  , absoluteToleranceMs   = Just 0.01  -- 10 microseconds
   , warnOnVarianceChange  = True
   , varianceTolerancePercent = 50.0
   , outputDir             = ".golden"
@@ -147,10 +166,10 @@ data BenchResult
     -- ^ No golden file existed; baseline created
   | Pass !GoldenStats !GoldenStats ![Warning]
     -- ^ Benchmark passed (golden stats, actual stats, warnings)
-  | Regression !GoldenStats !GoldenStats !Double !Double
-    -- ^ Performance regression detected (golden, actual, percent change, tolerance)
-  | Improvement !GoldenStats !GoldenStats !Double !Double
-    -- ^ Performance improvement detected (golden, actual, percent change, tolerance)
+  | Regression !GoldenStats !GoldenStats !Double !Double !(Maybe Double)
+    -- ^ Performance regression (golden, actual, percent change, tolerance, absolute tolerance)
+  | Improvement !GoldenStats !GoldenStats !Double !Double !(Maybe Double)
+    -- ^ Performance improvement (golden, actual, percent change, tolerance, absolute tolerance)
   deriving (Show, Eq)
 
 -- | Warnings that may be emitted during benchmark comparison.

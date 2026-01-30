@@ -54,8 +54,51 @@
 -- * Number of iterations
 -- * Warm-up iterations
 -- * Tolerance percentage
+-- * Absolute tolerance (hybrid tolerance strategy)
 -- * Variance warnings
 -- * Robust statistics mode (trimmed mean, MAD, outlier detection)
+--
+-- == Tolerance Configuration
+--
+-- The framework supports two tolerance mechanisms that work together:
+--
+-- 1. __Percentage tolerance__ ('tolerancePercent'): Checks if the mean time
+--    change is within ±X% of the baseline. This is the traditional approach
+--    and works well for operations that take more than a few milliseconds.
+--
+-- 2. __Absolute tolerance__ ('absoluteToleranceMs'): Checks if the absolute
+--    time difference is within X milliseconds. This prevents false failures
+--    for extremely fast operations (< 1ms) where measurement noise causes
+--    large percentage variations despite negligible absolute differences.
+--
+-- By default, benchmarks pass if __EITHER__ tolerance is satisfied:
+--
+-- @
+-- pass = (percentChange <= 15%) OR (absTimeDiff <= 0.01 ms)
+-- @
+--
+-- This hybrid strategy combines the benefits of both approaches:
+--
+-- * For fast operations (< 1ms): Absolute tolerance dominates, preventing noise
+-- * For slow operations (> 1ms): Percentage tolerance dominates, catching real regressions
+--
+-- To disable absolute tolerance and use percentage-only comparison:
+--
+-- @
+-- benchGoldenWith defaultBenchConfig
+--   { absoluteToleranceMs = Nothing
+--   }
+--   \"benchmark\" $ ...
+-- @
+--
+-- To adjust the absolute tolerance threshold:
+--
+-- @
+-- benchGoldenWith defaultBenchConfig
+--   { absoluteToleranceMs = Just 0.001  -- 1 microsecond (very strict)
+--   }
+--   \"benchmark\" $ ...
+-- @
 --
 -- = Environment Variables
 --
@@ -190,7 +233,7 @@ instance Example BenchGolden where
 
 -- | Instance for BenchGolden with an argument.
 --
--- This allows benchmarks to receive setup data from 'before' or 'around'.
+-- This allows benchmarks to receive setup data from @before@ or @around@ combinators.
 instance Example (arg -> BenchGolden) where
   type Arg (arg -> BenchGolden) = arg
   evaluateExample bgFn _params hook _progress = do
@@ -231,15 +274,22 @@ fromBenchResult result = case result of
         warningInfo = formatWarnings warnings
     in Result (info ++ warningInfo) Success
 
-  Regression golden actual pctChange tolerance ->
-    let message = printf "Mean time increased by %.1f%% (tolerance: %.1f%%)\n\n%s"
-                    pctChange tolerance (formatRegression golden actual)
+  Regression golden actual pctChange tolerance absToleranceMs ->
+    let toleranceDesc :: String
+        toleranceDesc = case absToleranceMs of
+          Nothing -> printf "tolerance: %.1f%%" tolerance
+          Just absMs -> printf "tolerance: %.1f%% or %.3f ms" tolerance absMs
+        message = printf "Mean time increased by %.1f%% (%s)\n\n%s"
+                    pctChange toleranceDesc (formatRegression golden actual)
     in Result message (Failure Nothing (Reason message))
 
-  Improvement golden actual pctChange tolerance ->
-    -- Improvements are still success, but notable
-    Result (printf "Performance improved by %.1f%% (tolerance: %.1f%%)\n%s"
-             pctChange tolerance (formatPass golden actual))
+  Improvement golden actual pctChange tolerance absToleranceMs ->
+    let toleranceDesc :: String
+        toleranceDesc = case absToleranceMs of
+          Nothing -> printf "tolerance: %.1f%%" tolerance
+          Just absMs -> printf "tolerance: %.1f%% or %.3f ms" tolerance absMs
+    in Result (printf "Performance improved by %.1f%% (%s)\n%s"
+                pctChange toleranceDesc (formatPass golden actual))
       Success
 
 -- | Format statistics for the first run.

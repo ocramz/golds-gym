@@ -109,6 +109,7 @@ GOLDS_GYM_ACCEPT=1 stack test
 | `iterations` | 100 | Number of benchmark iterations |
 | `warmupIterations` | 5 | Warm-up runs (discarded) |
 | `tolerancePercent` | 15.0 | Allowed mean time deviation (%) |
+| `absoluteToleranceMs` | Just 0.01 | Minimum absolute tolerance in milliseconds (hybrid tolerance) |
 | `warnOnVarianceChange` | True | Warn if stddev changes significantly |
 | `varianceTolerancePercent` | 50.0 | Allowed stddev deviation (%) |
 | `outputDir` | ".golden" | Directory for golden files |
@@ -116,6 +117,73 @@ GOLDS_GYM_ACCEPT=1 stack test
 | `useRobustStatistics` | False | Use robust statistics (trimmed mean, MAD) |
 | `trimPercent` | 10.0 | Percentage to trim from each tail (%) |
 | `outlierThreshold` | 3.0 | MAD multiplier for outlier detection |
+
+### Hybrid Tolerance Strategy
+
+**New in v0.2.0**: Hybrid tolerance prevents false failures from measurement noise.
+
+The framework uses BOTH percentage and absolute tolerance by default:
+
+```
+Benchmark passes if:
+  (mean_change <= ±15%) OR (abs_time_diff <= 0.01ms)
+```
+
+#### Why Hybrid Tolerance?
+
+For extremely fast operations (< 1ms), tiny measurement noise causes huge percentage variations:
+
+- **Baseline**: 0.001 ms
+- **Actual**: 0.0015 ms  
+- **Percentage difference**: +50% ❌ (fails with 15% tolerance)
+- **Absolute difference**: +0.0005 ms ✅ (negligible, within 0.01ms tolerance)
+
+The hybrid approach automatically handles this:
+
+- **Fast operations (< 1ms)**: Absolute tolerance dominates → noise ignored
+- **Slow operations (> 1ms)**: Percentage tolerance dominates → regressions caught
+
+#### Configuration Examples
+
+**Default (hybrid tolerance)**:
+```haskell
+benchGolden "fast operation" $ do
+  return $ sum [1..100]
+```
+Passes if within ±15% **or** ±0.01ms (10 microseconds).
+
+**Percentage-only (disable absolute tolerance)**:
+```haskell
+benchGoldenWith defaultBenchConfig
+  { absoluteToleranceMs = Nothing
+  , tolerancePercent = 20.0
+  }
+  "long operation" $ do
+  return $ expensiveComputation input
+```
+Traditional percentage-only comparison.
+
+**Strict absolute tolerance**:
+```haskell
+benchGoldenWith defaultBenchConfig
+  { absoluteToleranceMs = Just 0.001  -- 1 microsecond
+  , tolerancePercent = 10.0
+  }
+  "performance-critical" $ do
+  return $ criticalPath data
+```
+Very strict for performance-critical code.
+
+**Relaxed tolerance for noisy CI**:
+```haskell
+benchGoldenWith defaultBenchConfig
+  { absoluteToleranceMs = Just 0.1  -- 100 microseconds
+  , tolerancePercent = 25.0
+  }
+  "ci benchmark" $ do
+  return $ computation input
+```
+More forgiving for shared CI runners.
 
 ## Architecture Detection
 
@@ -177,9 +245,11 @@ Outliers are reported but **not removed** - they're preserved in golden files fo
 
 ✅ **Use robust statistics when:**
 - Benchmarking in noisy environments (shared CI runners)
-- Operations subject to GC pauses
-- Fast operations (< 1ms) with high relative variance
-- You need more stable baselines
+- Operations subject to GC pauses or OS scheduling variability
+- Fast operations (< 1ms) with high relative variance (CV > 50%)
+- Sorting already-sorted data or other operations with occasional slowdowns
+- You see large max/stddev values with small mean times
+- You need more stable baselines across runs
 
 ❌ **Standard statistics may be better when:**
 - Benchmarking isolated, long-running operations
@@ -190,11 +260,195 @@ Outliers are reported but **not removed** - they're preserved in golden files fo
 
 In CI environments, you may want to:
 
-
-3. **Increase tolerance** (for noisy CI environments):
-   ```haskell
-   benchGoldenWith defaultBenchConfig { tolerancePercent = 25.0 } ...
+1. **Skip benchmarks** (if CI is too noisy):
+   ```bash
+   GOLDS_GYM_SKIP=1 cabal test
    ```
+
+2. **Use relaxed tolerance** (for shared CI runners):
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { tolerancePercent = 25.0
+     , absoluteToleranceMs = Just 0.1  -- 100 microseconds
+     }
+     "benchmark" $ ...
+   ```
+
+3. **Enable robust statistics** (outlier detection):
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { useRobustStatistics = True
+     , tolerancePercent = 20.0
+     }
+     "benchmark" $ ...
+   ```
+
+## Troubleshooting
+
+### Random Test Failures Due to Measurement Noise
+
+**Symptom**: Tests fail intermittently with small percentage increases despite negligible absolute time differences:
+
+```
+Mean time increased by 35.5% (tolerance: 15.0%)
+
+Metric    Actual  Baseline    Diff
+------    ------  --------    ----
+Mean    0.001 ms  0.000 ms  +35.5%
+```
+
+**Root Cause**: Operations taking < 1ms have high relative measurement noise. A 0.0005ms difference is negligible but represents 50% variation.
+
+**Solutions**:
+
+1. **Use hybrid tolerance (default since v0.2.0)**:
+   ```haskell
+   benchGolden "fast operation" $ ...
+   ```
+   The default `absoluteToleranceMs = Just 0.01` prevents these failures.
+
+2. **Adjust absolute tolerance threshold**:
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { absoluteToleranceMs = Just 0.001  -- Stricter: 1 microsecond
+     }
+     "very fast operation" $ ...
+   ```
+
+3. **Increase iterations for stability**:
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { iterations = 500  -- More samples reduce noise
+     }
+     "noisy operation" $ ...
+   ```
+
+4. **Use robust statistics**:
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { useRobustStatistics = True  -- Outlier-resistant
+     , trimPercent = 10.0
+     }
+     "operation with outliers" $ ...
+   ```
+
+### High Variance Warnings
+
+**Symptom**: Warnings about variance changes despite passing benchmarks:
+
+```
+Warnings:
+  ⚠ Variance increased by 65.2% (0.001 ms -> 0.002 ms, tolerance: 50.0%)
+```
+
+**Solutions**:
+
+1. **Disable variance warnings** (if not critical):
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { warnOnVarianceChange = False
+     }
+     "benchmark" $ ...
+   ```
+
+2. **Increase variance tolerance**:
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { varianceTolerancePercent = 100.0  -- Allow ±100% stddev change
+     }
+     "benchmark" $ ...
+   ```
+
+3. **Use robust statistics** (MAD instead of stddev):
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { useRobustStatistics = True  -- Uses MAD, more stable
+     }
+     "benchmark" $ ...
+   ```
+
+### Outlier Warnings
+
+**Symptom**: Outliers detected in benchmark runs:
+
+```
+Warnings:
+  ⚠ 3 outlier(s) detected: 2.1ms 2.3ms 2.5ms
+```
+
+**Causes**:
+- Garbage collection pauses
+- OS scheduling interruptions
+- CPU thermal throttling
+- Background processes
+
+**Solutions**:
+
+1. **Increase outlier threshold** (less sensitive):
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { useRobustStatistics = True
+     , outlierThreshold = 5.0  -- More forgiving (default: 3.0)
+     }
+     "benchmark" $ ...
+   ```
+
+2. **Increase warm-up iterations**:
+   ```haskell
+   benchGoldenWith defaultBenchConfig
+     { warmupIterations = 20  -- Stabilize before measurement
+     }
+     "benchmark" $ ...
+   ```
+
+3. **Minimize system load**:
+   - Close background applications
+   - Disable system services during benchmarking
+   - Use dedicated benchmark hardware
+
+### Benchmarks Pass Locally But Fail in CI
+
+**Cause**: Different architecture or noisier environment.
+
+**Solutions**:
+
+1. **Architecture-specific baselines**: Golden files are already per-architecture. Check that your CI architecture ID matches:
+   ```bash
+   GOLDS_GYM_ARCH=custom-ci-id cabal test
+   ```
+
+2. **Relaxed CI configuration**:
+   ```haskell
+   #ifdef CI_BUILD
+   ciConfig :: BenchConfig
+   ciConfig = defaultBenchConfig
+     { tolerancePercent = 30.0
+     , absoluteToleranceMs = Just 0.2
+     , useRobustStatistics = True
+     }
+   #endif
+   ```
+
+3. **Skip benchmarks in CI**:
+   ```yaml
+   # .github/workflows/ci.yml
+   - name: Run tests
+     run: GOLDS_GYM_SKIP=1 stack test
+   ```
+
+### Regenerating Golden Files
+
+**When to regenerate**:
+- Intentional performance improvements/changes
+- Compiler upgrades affecting code generation
+- Architecture changes
+
+**How**:
+```bash
+GOLDS_GYM_ACCEPT=1 stack test
+```
+
+**Warning**: Only regenerate when you've verified the performance change is expected!
 
 ## License
 

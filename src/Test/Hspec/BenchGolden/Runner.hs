@@ -280,6 +280,19 @@ detectOutliers threshold vec med mad
 --
 -- Returns a 'BenchResult' indicating whether the benchmark passed,
 -- regressed, or improved, along with any warnings.
+--
+-- = Hybrid Tolerance Strategy
+--
+-- The comparison uses BOTH percentage and absolute tolerance (when configured):
+--
+-- 1. Calculate percentage difference: @((actual - golden) / golden) * 100@
+--
+-- 2. Pass if @abs(percentDiff) <= tolerancePercent@ (percentage check)
+--
+-- 3. OR if @abs(actual - golden) <= absoluteToleranceMs@ (absolute check)
+--
+-- This prevents false failures for sub-millisecond operations where measurement
+-- noise creates large percentage variations despite negligible absolute differences.
 compareStats :: BenchConfig -> GoldenStats -> GoldenStats -> BenchResult
 compareStats config golden actual =
   let -- Choose comparison metric based on config
@@ -296,6 +309,14 @@ compareStats config golden actual =
       absDiff = abs meanDiff
       tolerance = tolerancePercent config
 
+      -- Calculate absolute time difference (in milliseconds)
+      absTimeDiff = abs (actualValue - goldenValue)
+
+      -- Check if within absolute tolerance (hybrid tolerance strategy)
+      withinAbsoluteTolerance = case absoluteToleranceMs config of
+        Nothing -> False
+        Just absThreshold -> absTimeDiff <= absThreshold
+
       -- Check variance if enabled
       baseWarnings = if warnOnVarianceChange config
                      then checkVariance config golden actual
@@ -308,11 +329,11 @@ compareStats config golden actual =
       
       warnings = baseWarnings ++ outlierWarnings
 
-  in if absDiff <= tolerance
+  in if absDiff <= tolerance || withinAbsoluteTolerance
      then Pass golden actual warnings
      else if meanDiff > 0
-          then Regression golden actual meanDiff tolerance
-          else Improvement golden actual (abs meanDiff) tolerance
+          then Regression golden actual meanDiff tolerance (absoluteToleranceMs config)
+          else Improvement golden actual (abs meanDiff) tolerance (absoluteToleranceMs config)
 
 -- | Check for variance changes and generate warnings.
 checkVariance :: BenchConfig -> GoldenStats -> GoldenStats -> [Warning]
