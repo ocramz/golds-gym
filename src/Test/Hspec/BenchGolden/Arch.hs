@@ -19,6 +19,25 @@
 -- * CPU model when available (Apple M1, Intel Core i7, etc.)
 -- * RAM size when available (16GB, 32GB, etc.)
 -- * CPU core count when available
+--
+-- = Enhanced Architecture Detection
+--
+-- To address concerns about coarse architecture identifiers (e.g., x86_64-linux-Intel_Core_i7),
+-- this module now includes RAM size and CPU core count in the architecture string.
+--
+-- Example identifiers:
+--
+-- * @x86_64-linux-Intel_Core_i7_8700K-16GB-12cores@
+-- * @aarch64-darwin-Apple_M1-16GB-8cores@
+--
+-- This ensures that benchmarks are only compared on machines with:
+--
+-- * Same CPU architecture and model
+-- * Same RAM capacity (which affects caching behavior)
+-- * Same number of CPU cores (which affects parallel workloads)
+--
+-- This level of detail prevents invalid comparisons between machines with significantly
+-- different performance characteristics.
 
 module Test.Hspec.BenchGolden.Arch
   ( -- * Architecture Detection

@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Enhanced architecture detection** to include RAM size and CPU core count
+  - Architecture identifiers now include RAM (e.g., "16GB") and CPU cores (e.g., "12cores")
+  - Example: `x86_64-linux-Intel_Core_i7_8700K-16GB-12cores`
+  - Prevents invalid benchmark comparisons between machines with different RAM or core counts
+  - Addresses concerns about coarse architecture identifiers (e.g., "x86_64-linux-Intel_Core_i7")
+  - Ensures benchmarks are only compared on truly equivalent hardware
+
+### Changed
+
+- `ArchConfig` type now includes `archRAM :: Maybe Text` and `archCPUCores :: Maybe Int` fields
+- `buildArchId` function signature updated to include RAM and core count parameters
+- Architecture detection works on macOS (via `sysctl`), Linux (via `/proc/meminfo`, `nproc`), and Windows (via `wmic`)
+
 ## [0.2.0] - 2026-01-30
 
 ### Added
