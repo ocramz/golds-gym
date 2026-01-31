@@ -63,11 +63,11 @@ Golden files are stored in `.golden/<architecture>/` with the following structur
 
 ```
 .golden/
-├── aarch64-darwin-Apple_M1/
+├── aarch64-darwin-Apple_M1-16GB-8cores/
 │   ├── list-append.golden
 │   ├── list-append.actual
 │   └── sorting.golden
-└── x86_64-linux-Intel_Core_i7/
+└── x86_64-linux-Intel_Core_i7_8700K-16GB-12cores/
     └── list-append.golden
 ```
 
@@ -81,7 +81,7 @@ Each `.golden` file contains JSON with timing statistics:
   "min": 1.100,
   "max": 1.456,
   "percentiles": [[50, 1.201], [90, 1.350], [99, 1.440]],
-  "architecture": "aarch64-darwin-Apple_M1",
+  "architecture": "aarch64-darwin-Apple_M1-16GB-8cores",
   "timestamp": "2026-01-30T12:00:00Z",
   "trimmedMean": 1.220,
   "mad": 0.042,
@@ -191,8 +191,17 @@ The framework automatically detects:
 - CPU architecture (x86_64, aarch64)
 - Operating system (darwin, linux, windows)
 - CPU model (Apple M1, Intel Core i7, etc.)
+- RAM size (16GB, 32GB, etc.)
+- Number of CPU cores
 
 This ensures benchmarks are only compared against baselines from equivalent hardware.
+
+**Example architecture identifier**: `x86_64-linux-Intel_Core_i7_8700K-16GB-12cores`
+
+This detailed identification prevents benchmark comparisons between machines with different:
+- CPU models (e.g., different Core i7 generations)
+- RAM configurations (which affect caching behavior)
+- Core counts (affecting parallel workload performance)
 
 ## Robust Statistics
 
