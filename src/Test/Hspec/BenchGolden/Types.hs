@@ -150,14 +150,19 @@ data GoldenStats = GoldenStats
 -- Used to generate unique identifiers for golden file directories,
 -- ensuring benchmarks are only compared against equivalent hardware.
 data ArchConfig = ArchConfig
-  { archId    :: !Text
-    -- ^ Unique identifier (e.g., "aarch64-darwin-Apple_M1")
-  , archOS    :: !Text
+  { archId          :: !Text
+    -- ^ Unique identifier combining CPU architecture, OS, model, RAM, and thread count
+    --   (e.g., "aarch64-darwin-Apple_M1-16GB-8cpus")
+  , archOS          :: !Text
     -- ^ Operating system (e.g., "darwin", "linux")
-  , archCPU   :: !Text
+  , archCPU         :: !Text
     -- ^ CPU architecture (e.g., "aarch64", "x86_64")
-  , archModel :: !(Maybe Text)
-    -- ^ CPU model if available (e.g., "Apple M1", "Intel Core i7")
+  , archModel       :: !Text
+    -- ^ CPU model (e.g., "Apple M1", "Intel Core i7")
+  , archRAM         :: !Text
+    -- ^ RAM size (e.g., "16GB", "32GB")
+  , archThreadCount :: !Int
+    -- ^ Number of hardware threads (logical CPUs)
   } deriving (Show, Eq, Generic)
 
 -- | Result of running a benchmark and comparing against golden.
@@ -219,10 +224,12 @@ instance FromJSON GoldenStats where
 
 instance ToJSON ArchConfig where
   toJSON ArchConfig{..} = object
-    [ "id"    .= archId
-    , "os"    .= archOS
-    , "cpu"   .= archCPU
-    , "model" .= archModel
+    [ "id"          .= archId
+    , "os"          .= archOS
+    , "cpu"         .= archCPU
+    , "model"       .= archModel
+    , "ram"         .= archRAM
+    , "threadCount" .= archThreadCount
     ]
 
 instance FromJSON ArchConfig where
@@ -230,4 +237,6 @@ instance FromJSON ArchConfig where
     <$> v .: "id"
     <*> v .: "os"
     <*> v .: "cpu"
-    <*> v .:? "model"
+    <*> v .: "model"
+    <*> v .: "ram"
+    <*> v .: "threadCount"

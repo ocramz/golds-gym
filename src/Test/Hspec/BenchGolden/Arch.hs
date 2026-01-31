@@ -16,7 +16,36 @@
 --
 -- * CPU architecture (x86_64, aarch64, etc.)
 -- * Operating system (darwin, linux, windows)
--- * CPU model when available (Apple M1, Intel Core i7, etc.)
+-- * CPU model (Apple M1, Intel Core i7, etc.)
+-- * RAM size (16GB, 32GB, etc.)
+-- * Hardware thread count (logical CPUs)
+--
+-- = Enhanced Architecture Detection
+--
+-- To address concerns about coarse architecture identifiers (e.g., x86_64-linux-Intel_Core_i7),
+-- this module now includes RAM size and hardware thread count in the architecture string.
+--
+-- Example identifiers:
+--
+-- * @x86_64-linux-Intel_Core_i7_8700K-16GB-12cpus@
+-- * @aarch64-darwin-Apple_M1-16GB-8cpus@
+--
+-- This ensures that benchmarks are only compared on machines with:
+--
+-- * Same CPU architecture and model
+-- * Same RAM capacity (which affects caching behavior)
+-- * Same number of hardware threads (which affects parallel workloads)
+--
+-- Note: The thread count represents hardware threads (logical CPUs), not physical cores,
+-- as this is what affects benchmark performance for parallel workloads.
+--
+-- All fields are required. If detection fails, fallback values are used:
+-- * CPU model: "unknown"
+-- * RAM size: "unknown"  
+-- * Thread count: 1
+--
+-- This level of detail prevents invalid comparisons between machines with significantly
+-- different performance characteristics.
 
 module Test.Hspec.BenchGolden.Arch
   ( -- * Architecture Detection
@@ -42,9 +71,15 @@ import Test.Hspec.BenchGolden.Types (ArchConfig(..))
 
 -- | Detect the current machine's architecture.
 --
--- This function queries the system for CPU architecture, OS, and CPU model.
+-- This function queries the system for CPU architecture, OS, CPU model,
+-- RAM size, and hardware thread count.
 -- The resulting 'ArchConfig' can be used to generate architecture-specific
 -- golden file paths.
+--
+-- If detection fails for any field, fallback values are used:
+-- * CPU model: "unknown"
+-- * RAM size: "unknown"
+-- * Thread count: 1
 --
 -- The architecture can be overridden by setting the @GOLDS_GYM_ARCH@
 -- environment variable.
@@ -53,28 +88,38 @@ detectArchitecture = do
   envArch <- getArchFromEnv
   case envArch of
     Just customArch -> return $ ArchConfig
-      { archId    = customArch
-      , archOS    = T.pack os
-      , archCPU   = T.pack arch
-      , archModel = Just customArch
+      { archId          = customArch
+      , archOS          = T.pack os
+      , archCPU         = T.pack arch
+      , archModel       = customArch
+      , archRAM         = "unknown"
+      , archThreadCount = 1
       }
     Nothing -> do
-      model <- getCPUModel
-      let archConfig = ArchConfig
-            { archId    = buildArchId (T.pack arch) (T.pack os) model
-            , archOS    = T.pack os
-            , archCPU   = T.pack arch
-            , archModel = model
+      maybeModel <- getCPUModel
+      maybeRAM <- getRAMSize
+      maybeCores <- getCPUCores
+      let model = maybe "unknown" id maybeModel
+          ramSize = maybe "unknown" id maybeRAM
+          threadCount = maybe 1 id maybeCores
+          archConfig = ArchConfig
+            { archId          = buildArchId (T.pack arch) (T.pack os) model ramSize threadCount
+            , archOS          = T.pack os
+            , archCPU         = T.pack arch
+            , archModel       = model
+            , archRAM         = ramSize
+            , archThreadCount = threadCount
             }
       return archConfig
 
 -- | Build an architecture identifier from components.
-buildArchId :: Text -> Text -> Maybe Text -> Text
-buildArchId cpu osName maybeModel =
+buildArchId :: Text -> Text -> Text -> Text -> Int -> Text
+buildArchId cpu osName model ram threads =
   let base = cpu <> "-" <> osName
-  in case maybeModel of
-       Nothing    -> base
-       Just model -> base <> "-" <> sanitizeForFilename model
+      withModel = base <> "-" <> sanitizeForFilename model
+      withRAM = withModel <> "-" <> ram
+      withThreads = withRAM <> "-" <> T.pack (show threads) <> "cpus"
+  in withThreads
 
 -- | Get the architecture identifier string.
 --
@@ -156,6 +201,150 @@ getWindowsCPUModel = do
       in case drop 1 ls of  -- Skip header line
            (name:_) -> return $ Just $ cleanCPUName name
            _        -> return Nothing
+#endif
+
+-- | Get the RAM size.
+--
+-- This is platform-specific:
+--
+-- * macOS: Uses @sysctl -n hw.memsize@
+-- * Linux: Parses @\/proc\/meminfo@
+-- * Windows: Uses @wmic computersystem get totalphysicalmemory@
+-- * Other: Returns 'Nothing'
+getRAMSize :: IO (Maybe Text)
+getRAMSize = do
+#if defined(darwin_HOST_OS)
+  getDarwinRAMSize
+#elif defined(linux_HOST_OS)
+  getLinuxRAMSize
+#elif defined(mingw32_HOST_OS)
+  getWindowsRAMSize
+#else
+  return Nothing
+#endif
+
+#if defined(darwin_HOST_OS)
+-- | Get RAM size on macOS using sysctl.
+getDarwinRAMSize :: IO (Maybe Text)
+getDarwinRAMSize = do
+  result <- safeReadProcess "sysctl" ["-n", "hw.memsize"] ""
+  case result of
+    Nothing -> return Nothing
+    Just bytes -> case readBytes bytes of
+      Nothing -> return Nothing
+      Just b  -> return $ Just $ formatRAMSize b
+  where
+    readBytes :: Text -> Maybe Integer
+    readBytes t = case reads (T.unpack $ T.strip t) of
+      [(n, "")] -> Just n
+      _         -> Nothing
+    
+    formatRAMSize :: Integer -> Text
+    formatRAMSize bytes =
+      let gb = fromInteger bytes / (1024 * 1024 * 1024) :: Double
+      in T.pack $ show (round gb :: Integer) <> "GB"
+#endif
+
+#if defined(linux_HOST_OS)
+-- | Get RAM size on Linux by parsing /proc/meminfo.
+getLinuxRAMSize :: IO (Maybe Text)
+getLinuxRAMSize = do
+  result <- safeReadProcess "grep" ["-m1", "MemTotal", "/proc/meminfo"] ""
+  case result of
+    Nothing -> return Nothing
+    Just line ->
+      let parts = T.words line
+      in case parts of
+           [_, kb, _] -> case reads (T.unpack kb) of
+             [(n, "")] -> return $ Just $ formatRAMSize (n * 1024)
+             _         -> return Nothing
+           _          -> return Nothing
+  where
+    formatRAMSize :: Integer -> Text
+    formatRAMSize bytes =
+      let gb = fromInteger bytes / (1024 * 1024 * 1024) :: Double
+      in T.pack $ show (round gb :: Integer) <> "GB"
+#endif
+
+#if defined(mingw32_HOST_OS)
+-- | Get RAM size on Windows using WMIC.
+getWindowsRAMSize :: IO (Maybe Text)
+getWindowsRAMSize = do
+  result <- safeReadProcess "wmic" ["computersystem", "get", "totalphysicalmemory"] ""
+  case result of
+    Nothing -> return Nothing
+    Just output ->
+      let ls = filter (not . T.null) $ T.lines output
+      in case drop 1 ls of  -- Skip header line
+           (bytes:_) -> case reads (T.unpack $ T.strip bytes) of
+             [(n, "")] -> return $ Just $ formatRAMSize n
+             _         -> return Nothing
+           _         -> return Nothing
+  where
+    formatRAMSize :: Integer -> Text
+    formatRAMSize bytes =
+      let gb = fromInteger bytes / (1024 * 1024 * 1024) :: Double
+      in T.pack $ show (round gb :: Integer) <> "GB"
+#endif
+
+-- | Get the number of CPU cores.
+--
+-- This is platform-specific:
+--
+-- * macOS: Uses @sysctl -n hw.ncpu@
+-- * Linux: Uses @nproc@
+-- * Windows: Uses @wmic cpu get numberofcores@
+-- * Other: Returns 'Nothing'
+getCPUCores :: IO (Maybe Int)
+getCPUCores = do
+#if defined(darwin_HOST_OS)
+  getDarwinCPUCores
+#elif defined(linux_HOST_OS)
+  getLinuxCPUCores
+#elif defined(mingw32_HOST_OS)
+  getWindowsCPUCores
+#else
+  return Nothing
+#endif
+
+#if defined(darwin_HOST_OS)
+-- | Get CPU cores on macOS using sysctl.
+getDarwinCPUCores :: IO (Maybe Int)
+getDarwinCPUCores = do
+  result <- safeReadProcess "sysctl" ["-n", "hw.ncpu"] ""
+  case result of
+    Nothing -> return Nothing
+    Just cores -> case reads (T.unpack $ T.strip cores) of
+      [(n, "")] -> return $ Just n
+      _         -> return Nothing
+#endif
+
+#if defined(linux_HOST_OS)
+-- | Get CPU cores on Linux using nproc.
+getLinuxCPUCores :: IO (Maybe Int)
+getLinuxCPUCores = do
+  result <- safeReadProcess "nproc" [] ""
+  case result of
+    Nothing -> return Nothing
+    Just cores -> case reads (T.unpack $ T.strip cores) of
+      [(n, "")] -> return $ Just n
+      _         -> return Nothing
+#endif
+
+#if defined(mingw32_HOST_OS)
+-- | Get CPU cores on Windows using WMIC.
+getWindowsCPUCores :: IO (Maybe Int)
+getWindowsCPUCores = do
+  result <- safeReadProcess "wmic" ["cpu", "get", "numberofcores"] ""
+  case result of
+    Nothing -> return Nothing
+    Just output ->
+      let ls = filter (not . T.null) $ T.lines output
+      in case drop 1 ls of  -- Skip header line
+           (cores:_) -> case reads (T.unpack $ T.strip cores) of
+             [(n, "")] -> return $ Just n
+             _         -> return Nothing
+           _         -> return Nothing
 #endif
 
 -- | Safely run a process, returning Nothing on failure.
