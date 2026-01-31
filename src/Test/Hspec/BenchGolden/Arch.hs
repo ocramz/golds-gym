@@ -274,7 +274,7 @@ getWindowsRAMSize = do
 -- This is platform-specific:
 --
 -- * macOS: Uses @sysctl -n hw.ncpu@
--- * Linux: Parses @\/proc\/cpuinfo@ or uses @nproc@
+-- * Linux: Uses @nproc@
 -- * Windows: Uses @wmic cpu get numberofcores@
 -- * Other: Returns 'Nothing'
 getCPUCores :: IO (Maybe Int)
