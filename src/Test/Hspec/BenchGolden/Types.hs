@@ -150,14 +150,18 @@ data GoldenStats = GoldenStats
 -- Used to generate unique identifiers for golden file directories,
 -- ensuring benchmarks are only compared against equivalent hardware.
 data ArchConfig = ArchConfig
-  { archId    :: !Text
-    -- ^ Unique identifier (e.g., "aarch64-darwin-Apple_M1")
-  , archOS    :: !Text
+  { archId       :: !Text
+    -- ^ Unique identifier (e.g., "aarch64-darwin-Apple_M1-16GB")
+  , archOS       :: !Text
     -- ^ Operating system (e.g., "darwin", "linux")
-  , archCPU   :: !Text
+  , archCPU      :: !Text
     -- ^ CPU architecture (e.g., "aarch64", "x86_64")
-  , archModel :: !(Maybe Text)
+  , archModel    :: !(Maybe Text)
     -- ^ CPU model if available (e.g., "Apple M1", "Intel Core i7")
+  , archRAM      :: !(Maybe Text)
+    -- ^ RAM size if available (e.g., "16GB", "32GB")
+  , archCPUCores :: !(Maybe Int)
+    -- ^ Number of CPU cores if available
   } deriving (Show, Eq, Generic)
 
 -- | Result of running a benchmark and comparing against golden.
@@ -219,10 +223,12 @@ instance FromJSON GoldenStats where
 
 instance ToJSON ArchConfig where
   toJSON ArchConfig{..} = object
-    [ "id"    .= archId
-    , "os"    .= archOS
-    , "cpu"   .= archCPU
-    , "model" .= archModel
+    [ "id"       .= archId
+    , "os"       .= archOS
+    , "cpu"      .= archCPU
+    , "model"    .= archModel
+    , "ram"      .= archRAM
+    , "cpuCores" .= archCPUCores
     ]
 
 instance FromJSON ArchConfig where
@@ -231,3 +237,5 @@ instance FromJSON ArchConfig where
     <*> v .: "os"
     <*> v .: "cpu"
     <*> v .:? "model"
+    <*> v .:? "ram"
+    <*> v .:? "cpuCores"
