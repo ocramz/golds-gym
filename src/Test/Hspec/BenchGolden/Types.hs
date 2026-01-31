@@ -35,6 +35,7 @@ module Test.Hspec.BenchGolden.Types
   ) where
 
 import Data.Aeson
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import GHC.Generics (Generic)
@@ -151,7 +152,7 @@ data GoldenStats = GoldenStats
 -- ensuring benchmarks are only compared against equivalent hardware.
 data ArchConfig = ArchConfig
   { archId       :: !Text
-    -- ^ Unique identifier (e.g., "aarch64-darwin-Apple_M1-16GB")
+    -- ^ Unique identifier (e.g., "aarch64-darwin-Apple_M1-16GB-8cpus")
   , archOS       :: !Text
     -- ^ Operating system (e.g., "darwin", "linux")
   , archCPU      :: !Text
@@ -161,7 +162,7 @@ data ArchConfig = ArchConfig
   , archRAM      :: !(Maybe Text)
     -- ^ RAM size if available (e.g., "16GB", "32GB")
   , archCPUCores :: !(Maybe Int)
-    -- ^ Number of CPU cores if available
+    -- ^ Number of logical CPUs (hardware threads) if available
   } deriving (Show, Eq, Generic)
 
 -- | Result of running a benchmark and comparing against golden.
@@ -222,13 +223,13 @@ instance FromJSON GoldenStats where
     <*> v .: "outliers"
 
 instance ToJSON ArchConfig where
-  toJSON ArchConfig{..} = object
-    [ "id"       .= archId
-    , "os"       .= archOS
-    , "cpu"      .= archCPU
-    , "model"    .= archModel
-    , "ram"      .= archRAM
-    , "cpuCores" .= archCPUCores
+  toJSON ArchConfig{..} = object $ catMaybes
+    [ Just ("id"       .= archId)
+    , Just ("os"       .= archOS)
+    , Just ("cpu"      .= archCPU)
+    , ("model"    .=) <$> archModel
+    , ("ram"      .=) <$> archRAM
+    , ("cpuCores" .=) <$> archCPUCores
     ]
 
 instance FromJSON ArchConfig where

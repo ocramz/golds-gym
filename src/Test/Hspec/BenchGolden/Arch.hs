@@ -18,23 +18,26 @@
 -- * Operating system (darwin, linux, windows)
 -- * CPU model when available (Apple M1, Intel Core i7, etc.)
 -- * RAM size when available (16GB, 32GB, etc.)
--- * CPU core count when available
+-- * Logical CPU count when available (hardware threads)
 --
 -- = Enhanced Architecture Detection
 --
 -- To address concerns about coarse architecture identifiers (e.g., x86_64-linux-Intel_Core_i7),
--- this module now includes RAM size and CPU core count in the architecture string.
+-- this module now includes RAM size and logical CPU count in the architecture string.
 --
 -- Example identifiers:
 --
--- * @x86_64-linux-Intel_Core_i7_8700K-16GB-12cores@
--- * @aarch64-darwin-Apple_M1-16GB-8cores@
+-- * @x86_64-linux-Intel_Core_i7_8700K-16GB-12cpus@
+-- * @aarch64-darwin-Apple_M1-16GB-8cpus@
 --
 -- This ensures that benchmarks are only compared on machines with:
 --
 -- * Same CPU architecture and model
 -- * Same RAM capacity (which affects caching behavior)
--- * Same number of CPU cores (which affects parallel workloads)
+-- * Same number of logical CPUs/threads (which affects parallel workloads)
+--
+-- Note: The CPU count represents logical CPUs (hardware threads), not physical cores,
+-- as this is what affects benchmark performance for parallel workloads.
 --
 -- This level of detail prevents invalid comparisons between machines with significantly
 -- different performance characteristics.
@@ -108,7 +111,7 @@ buildArchId cpu osName maybeModel maybeRAM maybeCores =
         Just ram -> withModel <> "-" <> ram
       withCores = case maybeCores of
         Nothing    -> withRAM
-        Just cores -> withRAM <> "-" <> T.pack (show cores) <> "cores"
+        Just cores -> withRAM <> "-" <> T.pack (show cores) <> "cpus"
   in withCores
 
 -- | Get the architecture identifier string.
@@ -220,10 +223,14 @@ getDarwinRAMSize = do
   result <- safeReadProcess "sysctl" ["-n", "hw.memsize"] ""
   case result of
     Nothing -> return Nothing
-    Just bytes -> return $ Just $ formatRAMSize $ readBytes bytes
+    Just bytes -> case readBytes bytes of
+      Nothing -> return Nothing
+      Just b  -> return $ Just $ formatRAMSize b
   where
-    readBytes :: Text -> Integer
-    readBytes = read . T.unpack . T.strip
+    readBytes :: Text -> Maybe Integer
+    readBytes t = case reads (T.unpack $ T.strip t) of
+      [(n, "")] -> Just n
+      _         -> Nothing
     
     formatRAMSize :: Integer -> Text
     formatRAMSize bytes =
@@ -241,7 +248,9 @@ getLinuxRAMSize = do
     Just line ->
       let parts = T.words line
       in case parts of
-           [_, kb, _] -> return $ Just $ formatRAMSize $ (read $ T.unpack kb) * 1024
+           [_, kb, _] -> case reads (T.unpack kb) of
+             [(n, "")] -> return $ Just $ formatRAMSize (n * 1024)
+             _         -> return Nothing
            _          -> return Nothing
   where
     formatRAMSize :: Integer -> Text
@@ -260,7 +269,9 @@ getWindowsRAMSize = do
     Just output ->
       let ls = filter (not . T.null) $ T.lines output
       in case drop 1 ls of  -- Skip header line
-           (bytes:_) -> return $ Just $ formatRAMSize $ read $ T.unpack $ T.strip bytes
+           (bytes:_) -> case reads (T.unpack $ T.strip bytes) of
+             [(n, "")] -> return $ Just $ formatRAMSize n
+             _         -> return Nothing
            _         -> return Nothing
   where
     formatRAMSize :: Integer -> Text
@@ -296,7 +307,9 @@ getDarwinCPUCores = do
   result <- safeReadProcess "sysctl" ["-n", "hw.ncpu"] ""
   case result of
     Nothing -> return Nothing
-    Just cores -> return $ Just $ read $ T.unpack $ T.strip cores
+    Just cores -> case reads (T.unpack $ T.strip cores) of
+      [(n, "")] -> return $ Just n
+      _         -> return Nothing
 #endif
 
 #if defined(linux_HOST_OS)
@@ -306,7 +319,9 @@ getLinuxCPUCores = do
   result <- safeReadProcess "nproc" [] ""
   case result of
     Nothing -> return Nothing
-    Just cores -> return $ Just $ read $ T.unpack $ T.strip cores
+    Just cores -> case reads (T.unpack $ T.strip cores) of
+      [(n, "")] -> return $ Just n
+      _         -> return Nothing
 #endif
 
 #if defined(mingw32_HOST_OS)
@@ -319,7 +334,9 @@ getWindowsCPUCores = do
     Just output ->
       let ls = filter (not . T.null) $ T.lines output
       in case drop 1 ls of  -- Skip header line
-           (cores:_) -> return $ Just $ read $ T.unpack $ T.strip cores
+           (cores:_) -> case reads (T.unpack $ T.strip cores) of
+             [(n, "")] -> return $ Just n
+             _         -> return Nothing
            _         -> return Nothing
 #endif
 
