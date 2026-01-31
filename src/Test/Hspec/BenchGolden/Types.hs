@@ -151,7 +151,8 @@ data GoldenStats = GoldenStats
 -- ensuring benchmarks are only compared against equivalent hardware.
 data ArchConfig = ArchConfig
   { archId          :: !Text
-    -- ^ Unique identifier (e.g., "aarch64-darwin-Apple_M1-16GB-8cpus")
+    -- ^ Unique identifier combining CPU architecture, OS, model, RAM, and thread count
+    --   (e.g., "aarch64-darwin-Apple_M1-16GB-8cpus")
   , archOS          :: !Text
     -- ^ Operating system (e.g., "darwin", "linux")
   , archCPU         :: !Text
