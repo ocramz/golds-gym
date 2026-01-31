@@ -16,14 +16,14 @@
 --
 -- * CPU architecture (x86_64, aarch64, etc.)
 -- * Operating system (darwin, linux, windows)
--- * CPU model when available (Apple M1, Intel Core i7, etc.)
--- * RAM size when available (16GB, 32GB, etc.)
--- * Logical CPU count when available (hardware threads)
+-- * CPU model (Apple M1, Intel Core i7, etc.)
+-- * RAM size (16GB, 32GB, etc.)
+-- * Hardware thread count (logical CPUs)
 --
 -- = Enhanced Architecture Detection
 --
 -- To address concerns about coarse architecture identifiers (e.g., x86_64-linux-Intel_Core_i7),
--- this module now includes RAM size and logical CPU count in the architecture string.
+-- this module now includes RAM size and hardware thread count in the architecture string.
 --
 -- Example identifiers:
 --
@@ -34,10 +34,15 @@
 --
 -- * Same CPU architecture and model
 -- * Same RAM capacity (which affects caching behavior)
--- * Same number of logical CPUs/threads (which affects parallel workloads)
+-- * Same number of hardware threads (which affects parallel workloads)
 --
--- Note: The CPU count represents logical CPUs (hardware threads), not physical cores,
+-- Note: The thread count represents hardware threads (logical CPUs), not physical cores,
 -- as this is what affects benchmark performance for parallel workloads.
+--
+-- All fields are required. If detection fails, fallback values are used:
+-- * CPU model: "unknown"
+-- * RAM size: "unknown"  
+-- * Thread count: 1
 --
 -- This level of detail prevents invalid comparisons between machines with significantly
 -- different performance characteristics.
@@ -67,9 +72,14 @@ import Test.Hspec.BenchGolden.Types (ArchConfig(..))
 -- | Detect the current machine's architecture.
 --
 -- This function queries the system for CPU architecture, OS, CPU model,
--- RAM size, and CPU core count.
+-- RAM size, and hardware thread count.
 -- The resulting 'ArchConfig' can be used to generate architecture-specific
 -- golden file paths.
+--
+-- If detection fails for any field, fallback values are used:
+-- * CPU model: "unknown"
+-- * RAM size: "unknown"
+-- * Thread count: 1
 --
 -- The architecture can be overridden by setting the @GOLDS_GYM_ARCH@
 -- environment variable.
@@ -78,41 +88,38 @@ detectArchitecture = do
   envArch <- getArchFromEnv
   case envArch of
     Just customArch -> return $ ArchConfig
-      { archId      = customArch
-      , archOS      = T.pack os
-      , archCPU     = T.pack arch
-      , archModel   = Just customArch
-      , archRAM     = Nothing
-      , archCPUCores = Nothing
+      { archId          = customArch
+      , archOS          = T.pack os
+      , archCPU         = T.pack arch
+      , archModel       = customArch
+      , archRAM         = "unknown"
+      , archThreadCount = 1
       }
     Nothing -> do
-      model <- getCPUModel
-      ramSize <- getRAMSize
-      cpuCores <- getCPUCores
-      let archConfig = ArchConfig
-            { archId      = buildArchId (T.pack arch) (T.pack os) model ramSize cpuCores
-            , archOS      = T.pack os
-            , archCPU     = T.pack arch
-            , archModel   = model
-            , archRAM     = ramSize
-            , archCPUCores = cpuCores
+      maybeModel <- getCPUModel
+      maybeRAM <- getRAMSize
+      maybeCores <- getCPUCores
+      let model = maybe "unknown" id maybeModel
+          ramSize = maybe "unknown" id maybeRAM
+          threadCount = maybe 1 id maybeCores
+          archConfig = ArchConfig
+            { archId          = buildArchId (T.pack arch) (T.pack os) model ramSize threadCount
+            , archOS          = T.pack os
+            , archCPU         = T.pack arch
+            , archModel       = model
+            , archRAM         = ramSize
+            , archThreadCount = threadCount
             }
       return archConfig
 
 -- | Build an architecture identifier from components.
-buildArchId :: Text -> Text -> Maybe Text -> Maybe Text -> Maybe Int -> Text
-buildArchId cpu osName maybeModel maybeRAM maybeCores =
+buildArchId :: Text -> Text -> Text -> Text -> Int -> Text
+buildArchId cpu osName model ram threads =
   let base = cpu <> "-" <> osName
-      withModel = case maybeModel of
-        Nothing    -> base
-        Just model -> base <> "-" <> sanitizeForFilename model
-      withRAM = case maybeRAM of
-        Nothing  -> withModel
-        Just ram -> withModel <> "-" <> ram
-      withCores = case maybeCores of
-        Nothing    -> withRAM
-        Just cores -> withRAM <> "-" <> T.pack (show cores) <> "cpus"
-  in withCores
+      withModel = base <> "-" <> sanitizeForFilename model
+      withRAM = withModel <> "-" <> ram
+      withThreads = withRAM <> "-" <> T.pack (show threads) <> "cpus"
+  in withThreads
 
 -- | Get the architecture identifier string.
 --

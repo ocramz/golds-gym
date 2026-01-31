@@ -4,20 +4,23 @@
 
 ### Added
 
-- **Enhanced architecture detection** to include RAM size and logical CPU count
-  - Architecture identifiers now include RAM (e.g., "16GB") and logical CPUs (e.g., "12cpus")
+- **Enhanced architecture detection** to include RAM size and hardware thread count
+  - Architecture identifiers now include RAM (e.g., "16GB") and hardware threads (e.g., "12cpus")
   - Example: `x86_64-linux-Intel_Core_i7_8700K-16GB-12cpus`
-  - Prevents invalid benchmark comparisons between machines with different RAM or CPU thread counts
+  - Prevents invalid benchmark comparisons between machines with different RAM or thread counts
   - Addresses concerns about coarse architecture identifiers (e.g., "x86_64-linux-Intel_Core_i7")
   - Ensures benchmarks are only compared on truly equivalent hardware
-  - CPU count represents logical CPUs (hardware threads), not physical cores
+  - Thread count represents hardware threads (logical CPUs), not physical cores
 
 ### Changed
 
-- `ArchConfig` type now includes `archRAM :: Maybe Text` and `archCPUCores :: Maybe Int` fields
-- `buildArchId` function signature updated to include RAM and CPU count parameters
+- **Breaking change**: All `ArchConfig` fields are now required (non-Maybe)
+  - Renamed `archCPUCores` to `archThreadCount` to clarify it represents hardware threads
+  - `archModel`, `archRAM`, and `archThreadCount` are now `!Text`, `!Text`, and `!Int` respectively
+  - Fallback values used when detection fails: "unknown" for model/RAM, 1 for thread count
+- `buildArchId` function now takes non-optional parameters
 - Architecture detection uses safe parsing to avoid crashes from unexpected system command output
-- JSON encoding of `ArchConfig` omits null fields for cleaner output
+- JSON encoding of `ArchConfig` includes all fields (no optional fields)
 - Architecture detection works on macOS (via `sysctl`), Linux (via `/proc/meminfo`, `nproc`), and Windows (via `wmic`)
 
 ## [0.2.0] - 2026-01-30

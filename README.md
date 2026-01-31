@@ -192,7 +192,7 @@ The framework automatically detects:
 - Operating system (darwin, linux, windows)
 - CPU model (Apple M1, Intel Core i7, etc.)
 - RAM size (16GB, 32GB, etc.)
-- Number of logical CPUs (hardware threads)
+- Hardware thread count (logical CPUs)
 
 This ensures benchmarks are only compared against baselines from equivalent hardware.
 
@@ -201,9 +201,14 @@ This ensures benchmarks are only compared against baselines from equivalent hard
 This detailed identification prevents benchmark comparisons between machines with different:
 - CPU models (e.g., different Core i7 generations)
 - RAM configurations (which affect caching behavior)
-- Logical CPU counts (affecting parallel workload performance)
+- Hardware thread counts (affecting parallel workload performance)
 
-Note: The CPU count represents logical CPUs (hardware threads), not physical cores, as this is what affects benchmark performance for parallel workloads.
+Note: The thread count represents hardware threads (logical CPUs), not physical cores, as this is what affects benchmark performance for parallel workloads.
+
+**Fallback values**: If system detection fails, the following defaults are used:
+- CPU model: "unknown"
+- RAM size: "unknown"
+- Thread count: 1
 
 ## Robust Statistics
 
