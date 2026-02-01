@@ -34,9 +34,9 @@
   - Migration: wrap existing `IO ()` actions with `io` combinator
   - New: use `nf`/`whnf` for pure functions instead of manual `evaluate`
 
-- **Output format:** Baseline now appears before Actual in comparison tables for easier left-to-right reading
+- **Output format:** Baseline now appears before Actual in comparison tables
 
-- **Error messages:** Tolerance values in failure messages now extracted from expectations rather than config defaults
+- **Error messages:** Tolerance values in failure messages are now extracted from expectations rather than config defaults
 
 ### Fixed
 
