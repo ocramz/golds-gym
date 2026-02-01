@@ -101,10 +101,10 @@ import Test.Hspec.BenchGolden.Lenses (metricFor, varianceFor)
 import Test.Hspec.BenchGolden.Types
 
 -- -----------------------------------------------------------------------------
--- Benchmarkable constructors
+-- Evaluation Strategies
 -- Vendored from tasty-bench-0.5 with modifications
--- Copyright (c) 2021 Andrew Lelechenko <andrew.lelechenko@gmail.com>
--- BSD-3-Clause License
+-- Copyright (c) 2021 Andrew Lelechenko and tasty-bench contributors
+-- MIT License
 -- https://hackage.haskell.org/package/tasty-bench-0.5
 -- -----------------------------------------------------------------------------
 

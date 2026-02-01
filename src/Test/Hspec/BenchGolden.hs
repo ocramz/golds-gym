@@ -30,7 +30,7 @@
 --
 -- main :: IO ()
 -- main = hspec $ do
---   describe "Performance" $ do
+--   describe \"Performance\" $ do
 --     -- Pure function with normal form evaluation
 --     `benchGolden` "list sorting" $
 --       `nf` sort [1000, 999..1]
