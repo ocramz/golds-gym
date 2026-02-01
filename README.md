@@ -51,7 +51,7 @@ main = hspec $ do
 **First run** creates `.golden/<arch>/list-append.golden` with baseline stats.  
 **Subsequent runs** compare against baseline. Test fails if mean time changes beyond tolerance (default: ±15% OR ±0.01ms).
 
-**Output format** shows baseline (expected) before actual (measured) for easy left-to-right reading:
+**Output format** :
 ```
 Metric  Baseline    Actual      Diff
 ------  --------    ------      ----
@@ -153,6 +153,9 @@ benchGoldenWithExpectation "strict requirements" defaultBenchConfig
 - [API documentation](https://hackage.haskell.org/package/golds-gym) - Full Haddock docs
 - [Example benchmarks](example/Spec.hs) - Comprehensive usage examples
 - [CHANGELOG](CHANGELOG.md) - Version history and migration guides
+
+## Related Work
+* [tasty-bench](https://hackage.haskell.org/package/tasty-bench)
 
 ## License
 

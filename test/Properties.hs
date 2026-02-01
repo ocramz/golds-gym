@@ -73,14 +73,14 @@ spec = do
         in mad == 0.0
 
     it "scales linearly with data (scale invariance)" $ property $
-      \(PositiveVector vec) (Positive scale) ->
+      \(PositiveVector vec) (Positive s) ->
         V.length vec > 0 ==>
         let median' = V.unsafeIndex vec (V.length vec `div` 2)
             mad1 = calculateMAD vec median'
-            scaledVec = V.map (* scale) vec
-            scaledMedian = median' * scale
+            scaledVec = V.map (* s) vec
+            scaledMedian = median' * s
             mad2 = calculateMAD scaledVec scaledMedian
-        in abs (mad2 - mad1 * scale) < 1e-6
+        in abs (mad2 - mad1 * s) < 1e-6
 
     it "is typically less than or equal to standard deviation" $ property $
       \(PositiveVector vec) ->
