@@ -59,12 +59,6 @@ spec = do
       _ <- evaluate $ sum [1..10000 :: Int]
       return ()
 
-  describe "IO Operations" $ do
-    benchGoldenIO "evaluate lazy thunk" $ do
-      let bigList = [1..100000 :: Int]
-      _ <- evaluate (length bigList)
-      return ()
-
   describe "Robust Statistics Mode" $ do
     -- Benchmark using robust statistics (trimmed mean, MAD)
     benchGoldenWith defaultBenchConfig

@@ -1,6 +1,6 @@
 # golds-gym 🏋️
 
-[![CI](https://github.com/ocramz/golds-gym/actions/workflows/ci.yml/badge.svg)](https://github.com/ocramz/golds-gym/actions/workflows/ci.yml)
+[![CI](https://github.com/ocramz/golds-gym/actions/workflows/ci.yml/badge.svg)](https://github.com/ocramz/golds-gym/actions/workflows/ci.yml) [![golds-gym](https://img.shields.io/hackage/v/golds-gym)](https://hackage.haskell.org/package/golds-gym)
 
 Golden testing for performance benchmarks. Save timing baselines on first run, compare against them on subsequent runs.
 
