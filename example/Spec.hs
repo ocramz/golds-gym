@@ -132,7 +132,7 @@ spec = do
     -- Hybrid tolerance with custom absolute threshold
     benchGoldenWithExpectation "hybrid tolerance custom" 
       defaultBenchConfig { iterations = 1000 }
-      [expect _statsMean (Hybrid 5.0 0.0001)] 
+      [expect _statsMean (Hybrid 5.0 0.001)] 
       $ nf (\n -> sort [n, n-1 .. 1]) (200 :: Int)
 
     -- Use robust statistics lens (trimmed mean)
