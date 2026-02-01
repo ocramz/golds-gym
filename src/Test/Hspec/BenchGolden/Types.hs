@@ -7,7 +7,7 @@
 -- Description : Core types for benchmark golden testing
 -- Copyright   : (c) 2026
 -- License     : MIT
--- Maintainer  : your.email@example.com
+-- Maintainer  : @ocramz
 --
 -- This module defines the core data types used by the golds-gym framework:
 --
@@ -22,6 +22,7 @@ module Test.Hspec.BenchGolden.Types
     BenchGolden(..)
   , BenchConfig(..)
   , defaultBenchConfig
+  , BenchAction(..)
 
     -- * Golden File Statistics
   , GoldenStats(..)
@@ -37,16 +38,21 @@ module Test.Hspec.BenchGolden.Types
 import Data.Aeson
 import Data.Text (Text)
 import Data.Time (UTCTime)
+import Data.Word (Word64)
 import GHC.Generics (Generic)
 
 -- Note: Expectation type is defined in Lenses module to avoid circular imports
+
+-- | A benchmarkable action that can be run multiple times.
+-- The 'Word64' parameter represents the number of iterations to execute.
+newtype BenchAction = BenchAction { runBenchAction :: Word64 -> IO () }
 
 -- | Configuration for a single benchmark golden test.
 data BenchGolden = BenchGolden
   { benchName   :: !String
     -- ^ Name of the benchmark (used for golden file naming)
-  , benchAction :: !(IO ())
-    -- ^ The IO action to benchmark
+  , benchAction :: !BenchAction
+    -- ^ The benchmarkable action to run
   , benchConfig :: !BenchConfig
     -- ^ Configuration parameters
   }

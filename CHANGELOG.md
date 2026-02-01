@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.4.0]
+
+### Added
+
+- **QuickCheck property tests** for statistical computations in Runner module
+  - 28 property tests covering mathematical invariants and edge cases
+  - Tests for `calculateTrimmedMean`, `calculateMAD`, `calculateIQR`, `detectOutliers`
+  - Tests for `compareStats` tolerance logic (hybrid percentage/absolute)
+  - Tests for `checkVariance` warning generation
+  - Custom generators for valid timing data and benchmark configurations
+  - New test suite: `golds-gym-properties`
+
+- **Evaluation strategy combinators** for proper laziness handling
+  - `nf` - Force result to normal form (deep evaluation)
+  - `whnf` - Force result to weak head normal form (shallow evaluation)
+  - `nfIO` - Normal form for IO actions
+  - `whnfIO` - Weak head normal form for IO actions
+  - `nfAppIO` - Normal form for functions returning IO
+  - `whnfAppIO` - WHNF for functions returning IO
+  - `io` - Plain IO action (for backward compatibility)
+  - Vendored evaluation loops from tasty-bench with attribution
+
+- **`BenchAction` type** wrapping `Word64 -> IO ()` for benchmarkable actions
+  - Enables direct benchmarking of pure functions without manual `evaluate` calls
+
+### Changed
+
+- **BREAKING:** All benchmark API functions now accept `BenchAction` instead of `IO ()`
+  - `benchGolden :: String -> BenchAction -> Spec`
+  - `benchGoldenWith :: BenchConfig -> String -> BenchAction -> Spec`
+  - `benchGoldenWithExpectation :: String -> BenchConfig -> [Expectation] -> BenchAction -> Spec`
+  - Migration: wrap existing `IO ()` actions with `io` combinator
+  - New: use `nf`/`whnf` for pure functions instead of manual `evaluate`
+
+- **Output format:** Baseline now appears before Actual in comparison tables
+
+- **Error messages:** Tolerance values in failure messages are now extracted from expectations rather than config defaults
+
+### Fixed
+
+- Evaluation strategy bug where GHC could share computation across benchmark iterations
+- Error message wording for performance improvements (now says "decreased by" instead of "increased by -X%")
+- Flaky micro-benchmarks stabilized by increasing iteration counts (500-2000 iterations)
+
+### Dependencies
+
+- Added `deepseq >= 1.4 && < 2` for `NFData` constraint
+- Added `QuickCheck >= 2.14 && < 3` for property tests (test suite only)
+
 ## [0.3.0]
 
 ### Added

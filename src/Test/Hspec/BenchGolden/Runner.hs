@@ -1,12 +1,15 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- |
 -- Module      : Test.Hspec.BenchGolden.Runner
 -- Description : Benchmark execution and golden file comparison
 -- Copyright   : (c) 2026
 -- License     : MIT
--- Maintainer  : your.email@example.com
+-- Maintainer  : @ocramz
 --
 -- This module handles running benchmarks and comparing results against
 -- golden files. It includes:
@@ -15,6 +18,22 @@
 -- * Golden file I/O (reading/writing JSON statistics)
 -- * Tolerance-based comparison with variance warnings
 -- * Support for updating baselines via GOLDS_GYM_ACCEPT environment variable
+-- * Evaluation strategies to control how values are forced (nf, whnf, etc.)
+--
+-- = Evaluation Strategies
+--
+-- Benchmarks require explicit evaluation strategies to prevent GHC from
+-- optimizing away computations or sharing results across iterations:
+--
+-- * 'nf' - Force result to normal form (deep, full evaluation)
+-- * 'whnf' - Force result to weak head normal form (shallow evaluation)
+-- * 'nfIO' - Execute IO and force result to normal form
+-- * 'whnfIO' - Execute IO and force result to WHNF
+-- * 'nfAppIO' - Apply function, execute IO, force result to normal form
+-- * 'whnfAppIO' - Apply function, execute IO, force result to WHNF
+-- * 'io' - Plain IO without additional forcing
+--
+-- These are vendored from tasty-bench with proper attribution (BSD-3-Clause).
 
 module Test.Hspec.BenchGolden.Runner
   ( -- * Running Benchmarks
@@ -45,8 +64,19 @@ module Test.Hspec.BenchGolden.Runner
   , shouldSkipBenchmarks
   , setAcceptGoldens
   , setSkipBenchmarks
+
+    -- * Benchmarkable Constructors
+  , io
+  , nf
+  , whnf
+  , nfIO
+  , whnfIO
+  , nfAppIO
+  , whnfAppIO
   ) where
 
+import Control.DeepSeq (NFData, rnf)
+import Control.Exception (evaluate)
 import Control.Monad (when, replicateM_)
 import Data.Aeson (eitherDecodeFileStrict, encodeFile)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -54,11 +84,13 @@ import Data.List (sort)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import qualified Data.Vector.Unboxed as V
+import Data.Word (Word64)
 import qualified Statistics.Sample as Stats
 import System.CPUTime (getCPUTime)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath ((</>), (<.>))
 import System.IO.Unsafe (unsafePerformIO)
+import GHC.Exts (SPEC(..))
 
 import Lens.Micro ((^.))
 
@@ -67,6 +99,138 @@ import qualified Test.BenchPress as BP
 import Test.Hspec.BenchGolden.Arch (detectArchitecture, sanitizeForFilename)
 import Test.Hspec.BenchGolden.Lenses (metricFor, varianceFor)
 import Test.Hspec.BenchGolden.Types
+
+-- -----------------------------------------------------------------------------
+-- Evaluation Strategies
+-- Vendored from tasty-bench-0.5 with modifications
+-- Copyright (c) 2021 Andrew Lelechenko and tasty-bench contributors
+-- MIT License
+-- https://hackage.haskell.org/package/tasty-bench-0.5
+-- -----------------------------------------------------------------------------
+
+-- | Benchmark a pure function applied to an argument, forcing the result to
+-- normal form (NF) using 'rnf' from "Control.DeepSeq".
+-- This ensures the entire result structure is evaluated.
+--
+-- Example:
+-- @
+-- benchGolden "fib 30" (nf fib 30)
+-- @
+nf :: NFData b => (a -> b) -> a -> BenchAction
+nf = funcToBench rnf
+{-# INLINE nf #-}
+
+-- | Benchmark a pure function applied to an argument, forcing the result to
+-- weak head normal form (WHNF) only. This evaluates just the outermost constructor.
+--
+-- Example:
+-- @
+-- benchGolden "replicate" (whnf (replicate 1000) 42)
+-- @
+whnf :: (a -> b) -> a -> BenchAction
+whnf = funcToBench id
+{-# INLINE whnf #-}
+
+-- | Benchmark an 'IO' action, forcing the result to normal form.
+--
+-- Example:
+-- @
+-- benchGolden "readFile" (nfIO $ readFile "data.txt")
+-- @
+nfIO :: NFData a => IO a -> BenchAction
+nfIO = ioToBench rnf
+{-# INLINE nfIO #-}
+
+-- | Benchmark an 'IO' action, forcing the result to weak head normal form.
+--
+-- Example:
+-- @
+-- benchGolden "getLine" (whnfIO getLine)
+-- @
+whnfIO :: IO a -> BenchAction
+whnfIO = ioToBench id
+{-# INLINE whnfIO #-}
+
+-- | Benchmark a function that performs 'IO', forcing the result to normal form.
+--
+-- Example:
+-- @
+-- benchGolden "lookup in map" (nfAppIO lookupInDB "key")
+-- @
+nfAppIO :: NFData b => (a -> IO b) -> a -> BenchAction
+nfAppIO = ioFuncToBench rnf
+{-# INLINE nfAppIO #-}
+
+-- | Benchmark a function that performs 'IO', forcing the result to weak head normal form.
+--
+-- Example:
+-- @
+-- benchGolden "query database" (whnfAppIO queryDB params)
+-- @
+whnfAppIO :: (a -> IO b) -> a -> BenchAction
+whnfAppIO = ioFuncToBench id
+{-# INLINE whnfAppIO #-}
+
+-- | Benchmark an 'IO' action, discarding the result.
+-- This is for backward compatibility with code that uses @IO ()@ actions.
+--
+-- Example:
+-- @
+-- benchGolden "compute" (io $ do
+--   result <- heavyComputation
+--   evaluate result)
+-- @
+io :: IO () -> BenchAction
+io action = BenchAction (\n -> replicateM_ (fromIntegral n) action)
+{-# INLINE io #-}
+
+-- Internal helpers
+
+funcToBench :: forall a b c. (b -> c) -> (a -> b) -> a -> BenchAction
+funcToBench frc = (BenchAction .) . funcToBenchLoop SPEC
+  where
+    -- Here we rely on the fact that GHC (unless spurred by
+    -- -fstatic-argument-transformation) is not smart enough:
+    -- it does not notice that `f` and `x` arguments are loop invariant
+    -- and could be floated, and the whole `f x` expression shared.
+    -- If we create a closure with `f` and `x` bound in the environment,
+    -- then GHC is smart enough to share computation of `f x`.
+    funcToBenchLoop :: SPEC -> (a -> b) -> a -> Word64 -> IO ()
+    funcToBenchLoop !_ f x n
+      | n == 0    = pure ()
+      | otherwise = do
+        _ <- evaluate (frc (f x))
+        funcToBenchLoop SPEC f x (n - 1)
+{-# INLINE funcToBench #-}
+
+ioToBench :: forall a b. (a -> b) -> IO a -> BenchAction
+ioToBench frc act = BenchAction (ioToBenchLoop SPEC act)
+  where
+    ioToBenchLoop :: SPEC -> IO a -> Word64 -> IO ()
+    ioToBenchLoop !_ action n
+      | n == 0    = pure ()
+      | otherwise = do
+        x <- action
+        _ <- evaluate (frc x)
+        ioToBenchLoop SPEC action (n - 1)
+{-# INLINE ioToBench #-}
+
+ioFuncToBench :: forall a b c. (b -> c) -> (a -> IO b) -> a -> BenchAction
+ioFuncToBench frc = (BenchAction .) . ioFuncToBenchLoop SPEC
+  where
+    ioFuncToBenchLoop :: SPEC -> (a -> IO b) -> a -> Word64 -> IO ()
+    ioFuncToBenchLoop !_ f x n
+      | n == 0    = pure ()
+      | otherwise = do
+        y <- f x
+        _ <- evaluate (frc y)
+        ioFuncToBenchLoop SPEC f x (n - 1)
+{-# INLINE ioFuncToBench #-}
+
+-- -----------------------------------------------------------------------------
+-- Benchmark execution
+-- -----------------------------------------------------------------------------
+
 
 -- | Run a benchmark golden test.
 --
@@ -102,7 +266,7 @@ runBenchGolden BenchGolden{..} = do
 
       -- Run warm-up iterations
       when (warmupIterations config > 0) $
-        replicateM_ (warmupIterations config) benchAction
+        runBenchAction benchAction (fromIntegral $ warmupIterations config)
 
       -- Run the actual benchmark
       actualStats <- runBenchmark benchName benchAction config arch
@@ -132,7 +296,7 @@ runBenchGolden BenchGolden{..} = do
               return result
 
 -- | Run a benchmark and collect statistics.
-runBenchmark :: String -> IO () -> BenchConfig -> ArchConfig -> IO GoldenStats
+runBenchmark :: String -> BenchAction -> BenchConfig -> ArchConfig -> IO GoldenStats
 runBenchmark _name action config arch = do
   if useRobustStatistics config
     then runBenchmarkWithRawTimings _name action config arch
@@ -141,7 +305,7 @@ runBenchmark _name action config arch = do
       (cpuStats, _wallStats) <- BP.benchmark
         (iterations config)
         (pure ())                    -- setup
-        (const action)               -- action
+        (const $ runBenchAction action 1)  -- action: run 1 iteration
         (const $ pure ())            -- teardown
 
       now <- getCurrentTime
@@ -162,10 +326,10 @@ runBenchmark _name action config arch = do
         }
 
 -- | Run a benchmark with raw timing collection for robust statistics.
-runBenchmarkWithRawTimings :: String -> IO () -> BenchConfig -> ArchConfig -> IO GoldenStats
+runBenchmarkWithRawTimings :: String -> BenchAction -> BenchConfig -> ArchConfig -> IO GoldenStats
 runBenchmarkWithRawTimings _name action config arch = do
   -- Collect raw CPU timings
-  timings <- mapM (const measureCPUTime) [1 .. iterations config]
+  timings <- mapM (const $ measureCPUTimeForAction action) [1 .. iterations config]
   
   let sortedTimings = sort timings
       vec = V.fromList sortedTimings
@@ -203,9 +367,9 @@ runBenchmarkWithRawTimings _name action config arch = do
     , statsOutliers    = outliers'
     }
   where
-    measureCPUTime = do
+    measureCPUTimeForAction act = do
       startCpu <- getCPUTime
-      action
+      runBenchAction act 1  -- Run the action once
       endCpu <- getCPUTime
       let cpuTime = picosToMillis (endCpu - startCpu)
       return cpuTime
