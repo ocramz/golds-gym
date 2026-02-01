@@ -16,7 +16,10 @@
 -- @golds-gym@ is a framework for golden testing of performance benchmarks.
 -- It integrates with hspec and uses benchpress for lightweight timing measurements.
 --
--- Optionally, benchmarks can use robust statistics to mitigate the impact of outliers.
+-- Benchmarks can use robust statistics to mitigate the impact of outliers.
+--
+-- The library can be used both to assert that performance does not regress, and to set expectations
+-- for improvements across project versions (see `benchGoldenWithExpectation`).
 --
 -- = Quick Start
 --
@@ -37,10 +40,7 @@
 --    golden file as the baseline.
 --
 -- 2. On subsequent runs, the benchmark is executed and compared against
---    the baseline using a configurable tolerance (default ±15%).
---
--- 3. If the mean time exceeds the tolerance, the test fails with a
---    regression or improvement notification.
+--    the baseline using a configurable tolerance or expectation combinators.
 --
 -- = Architecture-Specific Baselines
 --
@@ -50,14 +50,7 @@
 --
 -- = Configuration
 --
--- Use 'benchGoldenWith' with a custom 'BenchConfig' to adjust:
---
--- * Number of iterations
--- * Warm-up iterations
--- * Tolerance percentage
--- * Absolute tolerance (hybrid tolerance strategy)
--- * Variance warnings
--- * Robust statistics mode (trimmed mean, MAD, outlier detection)
+-- Use 'benchGoldenWith' or 'benchGoldenWithExpectation' with a custom 'BenchConfig':
 --
 -- == Tolerance Configuration
 --
@@ -134,8 +127,6 @@ module Test.Hspec.BenchGolden
   ( -- * Spec Combinators
     benchGolden
   , benchGoldenWith
-  , benchGoldenIO
-  , benchGoldenIOWith
   , benchGoldenWithExpectation
 
     -- * Configuration
@@ -230,30 +221,6 @@ benchGoldenWith config name action =
     , benchConfig = config
     }
 
--- | Create a benchmark golden test for an IO action.
---
--- This is an alias for 'benchGolden' that makes it clear the action
--- involves IO (e.g., file operations, network calls).
---
--- @
--- benchGoldenIO "file read" $ do
---   contents <- readFile "large-file.txt"
---   evaluate (length contents)
--- @
---
--- Note: For IO actions in noisy environments (CI, shared systems),
--- consider using 'benchGoldenIOWith' with @useRobustStatistics = True@.
-benchGoldenIO :: String -- ^ Name of the benchmark
-    -> IO () -- ^ The IO action to benchmark
-    -> Spec
-benchGoldenIO = benchGolden
-
--- | Create an IO benchmark golden test with custom configuration.
-benchGoldenIOWith :: BenchConfig -- ^ Configuration parameters
-    -> String -- ^ Name of the benchmark
-    -> IO () -- ^ The IO action to benchmark
-    -> Spec
-benchGoldenIOWith = benchGoldenWith
 
 -- | Create a benchmark golden test with custom lens-based expectations.
 --
@@ -266,37 +233,37 @@ benchGoldenIOWith = benchGoldenWith
 -- @
 -- -- Median-based comparison (more robust to outliers)
 -- benchGoldenWithExpectation "median test" defaultBenchConfig
---   [expect _statsMedian (Percent 10.0)]
+--   [`expect` `_statsMedian` (`Percent` 10.0)]
 --   myAction
 --
 -- -- Multiple metrics must pass (AND composition)
 -- benchGoldenWithExpectation "strict test" defaultBenchConfig
---   [ expect _statsMean (Percent 15.0) &&~
---     expect _statsMAD (Percent 50.0)
+--   [ expect `_statsMean` (Percent 15.0) &&~
+--     expect `_statsMAD` (Percent 50.0)
 --   ]
 --   myAction
 --
 -- -- Either metric can pass (OR composition)
 -- benchGoldenWithExpectation "flexible test" defaultBenchConfig
 --   [ expect _statsMedian (Percent 10.0) ||~
---     expect _statsMin (Absolute 0.01)
+--     expect _statsMin (`Absolute` 0.01)
 --   ]
 --   myAction
 --
 -- -- Expect performance improvement (must be faster)
 -- benchGoldenWithExpectation "optimization" defaultBenchConfig
---   [expect _statsMean (MustImprove 10.0)]  -- Must be ≥10% faster
+--   [expect _statsMean (`MustImprove` 10.0)]  -- Must be ≥10% faster
 --   myAction
 --
 -- -- Expect controlled regression (for feature additions)
 -- benchGoldenWithExpectation "new feature" defaultBenchConfig
---   [expect _statsMean (MustRegress 5.0)]  -- Accept 5-20% slowdown
+--   [expect _statsMean (`MustRegress` 5.0)]  -- Accept 5-20% slowdown
 --   myAction
 --
 -- -- Low variance requirement
 -- benchGoldenWithExpectation "stable perf" defaultBenchConfig
 --   [ expect _statsMean (Percent 15.0) &&~
---     expect _statsIQR (Absolute 0.1)
+--     expect `_statsIQR` (Absolute 0.1)
 --   ]
 --   myAction
 -- @
