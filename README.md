@@ -20,7 +20,7 @@ import Data.List (sort)
 main :: IO ()
 main = hspec $ do
   describe "Performance" $ do
-    -- Pure function with normal form evaluation (deep, full evaluation)
+    -- Pure function with normal form evaluation (full evaluation of the function arguments)
     benchGolden "list append" $
       nf (\xs -> xs ++ xs) [1..1000]
 
@@ -30,7 +30,7 @@ main = hspec $ do
       , tolerancePercent = 10.0
       }
       "sorting" $
-      nf sort [1000, 999..1]
+      nf ... 
 ```
 
 **Evaluation strategies** (required - specify how values are forced):
@@ -39,9 +39,9 @@ main = hspec $ do
 - `nfAppIO f x` - Apply function, execute resulting IO, force result to normal form
 - `io action` - Plain IO action without additional forcing
 
-**Why evaluation strategies matter**: Without forcing, GHC may optimize away computations or share results across iterations, making benchmarks meaningless. Use `nf` for most cases.
+**Why evaluation strategies matter**: Without forcing, GHC may optimize away computations or share results across iterations, making benchmarks meaningless.
 
-**First run** creates `.golden/<arch>/list-append.golden` with baseline stats.  
+**First run** creates `.golden/<arch>/<benchmark_name>.golden` with baseline stats.  
 **Subsequent runs** compare against baseline. Test fails if mean time changes beyond tolerance (default: ±15% OR ±0.01ms).
 
 **Output format** :
