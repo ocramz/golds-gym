@@ -82,13 +82,9 @@ spec = do
             mad2 = calculateMAD scaledVec scaledMedian
         in abs (mad2 - mad1 * s) < 1e-6
 
-    it "is typically less than or equal to standard deviation" $ property $
-      \(PositiveVector vec) ->
-        V.length vec > 2 ==>
-        let median' = V.unsafeIndex vec (V.length vec `div` 2)
-            mad = calculateMAD vec median'
-            stddev = Stats.stdDev vec
-        in mad <= stddev * 1.5  -- Allow some tolerance for small samples
+    -- Note: The relationship MAD ≤ σ only holds for normal distributions.
+    -- For arbitrary distributions (bimodal, skewed, etc.), MAD can exceed σ.
+    -- Therefore we don't test this as a universal property.
 
   describe "calculateIQR" $ do
     it "is always non-negative" $ property $

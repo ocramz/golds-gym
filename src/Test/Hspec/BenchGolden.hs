@@ -47,7 +47,7 @@
 -- __Evaluation strategies__ control how values are forced:
 --
 -- * 'nf' - Force to normal form (deep evaluation, use for most cases)
--- * 'whnf' - Force to weak head normal form (lazy, shallow evaluation)
+-- * 'whnf' - Force to weak head normal form (only outermost constructor is evaluated)
 -- * 'nfIO', 'whnfIO' - Variants for IO actions
 -- * 'nfAppIO', 'whnfAppIO' - For functions returning IO
 -- * 'io' - Plain IO action without forcing
