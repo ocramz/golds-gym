@@ -7,7 +7,7 @@
 -- Description : Architecture detection for machine-specific golden files
 -- Copyright   : (c) 2026
 -- License     : MIT
--- Maintainer  : your.email@example.com
+-- Maintainer  : @ocramz
 --
 -- This module provides functions for detecting the current machine's
 -- architecture, which is used to create architecture-specific golden files.

@@ -26,13 +26,34 @@
 -- @
 -- import Test.Hspec
 -- import Test.Hspec.BenchGolden
+-- import Data.List (sort)
 --
 -- main :: IO ()
 -- main = hspec $ do
---   describe \"Performance\" $ do
---     `benchGolden` "my algorithm" $
---       return $ myAlgorithm input
+--   describe "Performance" $ do
+--     -- Pure function with normal form evaluation
+--     `benchGolden` "list sorting" $
+--       `nf` sort [1000, 999..1]
+--
+--     -- Weak head normal form (lazy evaluation)
+--     `benchGolden` "replicate" $
+--       `whnf` (replicate 1000) 42
+--
+--     -- IO action with result forced to normal form
+--     `benchGolden` "file read" $
+--       `nfIO` (readFile "data.txt")
 -- @
+--
+-- __Evaluation strategies__ control how values are forced:
+--
+-- * 'nf' - Force to normal form (deep evaluation, use for most cases)
+-- * 'whnf' - Force to weak head normal form (lazy, shallow evaluation)
+-- * 'nfIO', 'whnfIO' - Variants for IO actions
+-- * 'nfAppIO', 'whnfAppIO' - For functions returning IO
+-- * 'io' - Plain IO action without forcing
+--
+-- Without proper evaluation strategies, GHC may optimize away computations
+-- or share results across iterations, making benchmarks meaningless.
 --
 -- = How It Works
 --
@@ -103,19 +124,19 @@
 -- -- Median-based comparison instead of mean
 -- benchGoldenWithExpectation "median test" defaultBenchConfig
 --   [expect _statsMedian (Percent 10.0)]
---   myAction
+--   (nf myAlgorithm input)
 --
 -- -- Compose multiple expectations
 -- benchGoldenWithExpectation "strict test" defaultBenchConfig
 --   [ expect _statsMean (Percent 15.0) &&~
 --     expect _statsMAD (Percent 50.0)
 --   ]
---   myAction
+--   (nf criticalFunction data)
 --
 -- -- Expect improvement (must be faster)
 -- benchGoldenWithExpectation "optimization" defaultBenchConfig
 --   [expect _statsMean (MustImprove 10.0)]  -- Must be ≥10% faster
---   myAction
+--   (nf optimizedVersion input)
 -- @
 ---- = Environment Variables
 --
@@ -135,10 +156,20 @@ module Test.Hspec.BenchGolden
 
     -- * Types
   , BenchGolden(..)
+  , BenchAction(..)
   , GoldenStats(..)
   , BenchResult(..)
   , Warning(..)
   , ArchConfig(..)
+
+    -- * Benchmarkable Constructors
+  , nf
+  , whnf
+  , nfIO
+  , whnfIO
+  , nfAppIO
+  , whnfAppIO
+  , io
 
     -- * Low-Level API
   , runBenchGolden
@@ -162,7 +193,7 @@ import Test.Hspec.Core.Spec
 import Test.Hspec.BenchGolden.Arch
 import qualified Test.Hspec.BenchGolden.Lenses as L
 import Test.Hspec.BenchGolden.Lenses hiding (Expectation)
-import Test.Hspec.BenchGolden.Runner (runBenchGolden, setAcceptGoldens, setSkipBenchmarks)
+import Test.Hspec.BenchGolden.Runner (runBenchGolden, setAcceptGoldens, setSkipBenchmarks, nf, whnf, nfIO, whnfIO, nfAppIO, whnfAppIO, io)
 import Test.Hspec.BenchGolden.Types
 
 -- | Create a benchmark golden test with default configuration.
@@ -172,8 +203,18 @@ import Test.Hspec.BenchGolden.Types
 -- @
 -- describe "Sorting" $ do
 --   benchGolden "quicksort 1000 elements" $
---     return $ quicksort [1000, 999..1]
+--     nf quicksort [1000, 999..1]
 -- @
+--
+-- Use evaluation strategy combinators to control how values are forced:
+--
+-- * 'nf' - Normal form (deep evaluation)
+-- * 'whnf' - Weak head normal form (shallow evaluation)
+-- * 'nfIO' - Normal form for IO actions
+-- * 'whnfIO' - WHNF for IO actions
+-- * 'nfAppIO' - Normal form for functions returning IO
+-- * 'whnfAppIO' - WHNF for functions returning IO
+-- * 'io' - Plain IO action (for backward compatibility)
 --
 -- Default configuration:
 --
@@ -184,7 +225,7 @@ import Test.Hspec.BenchGolden.Types
 -- * Standard statistics (not robust mode)
 benchGolden :: 
     String  -- ^ Name of the benchmark
-    -> IO () -- ^ The IO action to benchmark
+    -> BenchAction -- ^ The benchmarkable action
     -> Spec
 benchGolden name action = benchGoldenWith defaultBenchConfig name action
 
@@ -200,7 +241,7 @@ benchGolden name action = benchGoldenWith defaultBenchConfig name action
 --   , warmupIterations = 20
 --   }
 --   "hot loop" $
---   return $ criticalFunction input
+--   nf criticalFunction input
 --
 -- -- Robust statistics mode for noisy environments
 -- benchGoldenWith defaultBenchConfig
@@ -209,11 +250,11 @@ benchGolden name action = benchGoldenWith defaultBenchConfig name action
 --   , outlierThreshold = 3.0
 --   }
 --   "benchmark with outliers" $
---   return $ computation input
+--   whnf computation input
 -- @
 benchGoldenWith :: BenchConfig  -- ^ Configuration parameters
     -> String -- ^ Name of the benchmark
-    -> IO () -- ^ The IO action to benchmark
+    -> BenchAction -- ^ The benchmarkable action
     -> Spec
 benchGoldenWith config name action =
   it name $ BenchGolden
@@ -235,38 +276,38 @@ benchGoldenWith config name action =
 -- -- Median-based comparison (more robust to outliers)
 -- benchGoldenWithExpectation "median test" defaultBenchConfig
 --   [`expect` `_statsMedian` (`Percent` 10.0)]
---   myAction
+--   (nf sort [1000, 999..1])
 --
 -- -- Multiple metrics must pass (AND composition)
 -- benchGoldenWithExpectation "strict test" defaultBenchConfig
 --   [ expect `_statsMean` (Percent 15.0) &&~
 --     expect `_statsMAD` (Percent 50.0)
 --   ]
---   myAction
+--   (nf algorithm data)
 --
 -- -- Either metric can pass (OR composition)
 -- benchGoldenWithExpectation "flexible test" defaultBenchConfig
 --   [ expect _statsMedian (Percent 10.0) ||~
 --     expect _statsMin (`Absolute` 0.01)
 --   ]
---   myAction
+--   (nf fastOp input)
 --
 -- -- Expect performance improvement (must be faster)
 -- benchGoldenWithExpectation "optimization" defaultBenchConfig
 --   [expect _statsMean (`MustImprove` 10.0)]  -- Must be ≥10% faster
---   myAction
+--   (nf optimizedVersion data)
 --
 -- -- Expect controlled regression (for feature additions)
 -- benchGoldenWithExpectation "new feature" defaultBenchConfig
 --   [expect _statsMean (`MustRegress` 5.0)]  -- Accept 5-20% slowdown
---   myAction
+--   (nf newFeature input)
 --
 -- -- Low variance requirement
 -- benchGoldenWithExpectation "stable perf" defaultBenchConfig
 --   [ expect _statsMean (Percent 15.0) &&~
 --     expect `_statsIQR` (Absolute 0.1)
 --   ]
---   myAction
+--   (nfIO stableOperation)
 -- @
 --
 -- Note: Expectations are checked against golden files. On first run, a baseline
@@ -275,7 +316,7 @@ benchGoldenWithExpectation ::
     String        -- ^ Name of the benchmark
     -> BenchConfig  -- ^ Configuration parameters
     -> [L.Expectation]  -- ^ List of expectations (all must pass)
-    -> IO ()       -- ^ The IO action to benchmark
+    -> BenchAction       -- ^ The benchmarkable action
     -> Spec
 benchGoldenWithExpectation name config expectations action =
   it name $ BenchGoldenWithExpectations name action config expectations
@@ -283,7 +324,7 @@ benchGoldenWithExpectation name config expectations action =
 -- | Data type for benchmarks with custom lens-based expectations.
 data BenchGoldenWithExpectations = BenchGoldenWithExpectations
   !String        -- Name
-  !(IO ())       -- Action
+  !BenchAction   -- Action
   !BenchConfig   -- Config
   ![L.Expectation] -- Expectations
 
@@ -355,11 +396,16 @@ instance Example BenchGoldenWithExpectations where
     readIORef ref
 
 -- | Run a benchmark with custom expectations.
-runBenchGoldenWithExpectations :: String -> IO () -> BenchConfig -> [L.Expectation] -> IO BenchResult
+runBenchGoldenWithExpectations :: String -> BenchAction -> BenchConfig -> [L.Expectation] -> IO BenchResult
 runBenchGoldenWithExpectations name action config expectations = do
   -- Convert to BenchGolden and run normally first
   let bg = BenchGolden name action config
   result <- runBenchGolden bg
+  
+  -- Extract tolerance from first expectation for error messages
+  let (tolPct, tolAbs) = case expectations of
+        [] -> (tolerancePercent config, absoluteToleranceMs config)
+        (e:_) -> L.toleranceFromExpectation e
   
   -- Then check expectations for Pass/Regression/Improvement results
   case result of
@@ -377,19 +423,19 @@ runBenchGoldenWithExpectations name action config expectations = do
                meanDiff = if goldenVal == 0 
                          then 100.0 
                          else ((actualVal - goldenVal) / goldenVal) * 100
-           in return $ Regression golden actual meanDiff (tolerancePercent config) (absoluteToleranceMs config)
-    Regression golden actual pct tol absTol ->
+           in return $ Regression golden actual meanDiff tolPct tolAbs
+    Regression golden actual pct _tol _absTol ->
       -- Check if regression is acceptable per expectations
       let allPass = all (\e -> L.checkExpectation e golden actual) expectations
       in if allPass
          then return $ Pass golden actual []
-         else return $ Regression golden actual pct tol absTol
-    Improvement golden actual pct tol absTol ->
+         else return $ Regression golden actual pct tolPct tolAbs
+    Improvement golden actual pct _tol _absTol ->
       -- Check if improvement satisfies expectations
       let allPass = all (\e -> L.checkExpectation e golden actual) expectations
       in if allPass
          then return $ Pass golden actual []
-         else return $ Improvement golden actual pct tol absTol
+         else return $ Improvement golden actual pct tolPct tolAbs
 
 -- | Convert expectation-based benchmark result to hspec Result.
 fromBenchResultWithExpectations :: [L.Expectation] -> BenchResult -> Result
@@ -411,8 +457,11 @@ fromBenchResult result = case result of
         toleranceDesc = case absToleranceMs of
           Nothing -> printf "tolerance: %.1f%%" tolerance
           Just absMs -> printf "tolerance: %.1f%% or %.3f ms" tolerance absMs
-        message = printf "Mean time increased by %.1f%% (%s)\n\n%s"
-                    pctChange toleranceDesc (formatRegression golden actual)
+        changeVerb :: String
+        changeVerb = if pctChange >= 0 then "increased" else "decreased"
+        absPctChange = abs pctChange
+        message = printf "Mean time %s by %.1f%% (%s)\n\n%s"
+                    changeVerb absPctChange toleranceDesc (formatRegression golden actual)
     in Result message (Failure Nothing (Reason message))
 
   Improvement golden actual pctChange tolerance absToleranceMs ->
@@ -444,15 +493,6 @@ formatRegression golden actual =
       -- Create detailed comparison table
       metricCol = Box.vcat Box.left $ map Box.text 
         ["Metric", "------", "Mean", "Stddev", "Median", "Min", "Max"]
-      actualCol = Box.vcat Box.right $ map Box.text 
-        [ "Actual"
-        , "------"
-        , printf "%.3f ms" (statsMean actual)
-        , printf "%.3f ms" (statsStddev actual)
-        , printf "%.3f ms" (statsMedian actual)
-        , printf "%.3f ms" (statsMin actual)
-        , printf "%.3f ms" (statsMax actual)
-        ]
       baselineCol = Box.vcat Box.right $ map Box.text
         [ "Baseline"
         , "--------"
@@ -461,6 +501,15 @@ formatRegression golden actual =
         , printf "%.3f ms" (statsMedian golden)
         , printf "%.3f ms" (statsMin golden)
         , printf "%.3f ms" (statsMax golden)
+        ]
+      actualCol = Box.vcat Box.right $ map Box.text 
+        [ "Actual"
+        , "------"
+        , printf "%.3f ms" (statsMean actual)
+        , printf "%.3f ms" (statsStddev actual)
+        , printf "%.3f ms" (statsMedian actual)
+        , printf "%.3f ms" (statsMin actual)
+        , printf "%.3f ms" (statsMax actual)
         ]
       diffCol = Box.vcat Box.right $ map Box.text
         [ "Diff"
@@ -472,7 +521,7 @@ formatRegression golden actual =
         , ""
         ]
       
-      table = Box.hsep 2 Box.top [metricCol, actualCol, baselineCol, diffCol]
+      table = Box.hsep 2 Box.top [metricCol, baselineCol, actualCol, diffCol]
   in Box.render table
 
 -- | Format a passing comparison.
@@ -485,19 +534,19 @@ formatPass golden actual =
                    then 0
                    else ((statsStddev actual - statsStddev golden) / statsStddev golden) * 100
       
-      -- Create table with metric, actual, baseline, and diff columns
+      -- Create table with metric, baseline, actual, and diff columns
       metricCol = Box.vcat Box.left $ map Box.text ["Metric", "------", "Mean", "Stddev"]
-      actualCol = Box.vcat Box.right $ map Box.text 
-        [ "Actual"
-        , "------"
-        , printf "%.3f ms" (statsMean actual)
-        , printf "%.3f ms" (statsStddev actual)
-        ]
       baselineCol = Box.vcat Box.right $ map Box.text
         [ "Baseline"
         , "--------"
         , printf "%.3f ms" (statsMean golden)
         , printf "%.3f ms" (statsStddev golden)
+        ]
+      actualCol = Box.vcat Box.right $ map Box.text 
+        [ "Actual"
+        , "------"
+        , printf "%.3f ms" (statsMean actual)
+        , printf "%.3f ms" (statsStddev actual)
         ]
       diffCol = Box.vcat Box.right $ map Box.text
         [ "Diff"
@@ -506,7 +555,7 @@ formatPass golden actual =
         , printf "%+.1f%%" stddevDiff
         ]
       
-      table = Box.hsep 2 Box.top [metricCol, actualCol, baselineCol, diffCol]
+      table = Box.hsep 2 Box.top [metricCol, baselineCol, actualCol, diffCol]
   in Box.render table
 
 -- | Format statistics for display.

@@ -6,7 +6,7 @@
 -- Description : Lens-based expectation combinators for benchmark comparison
 -- Copyright   : (c) 2026
 -- License     : MIT
--- Maintainer  : your.email@example.com
+-- Maintainer  : @ocramz
 --
 -- This module provides van Laarhoven lenses for 'GoldenStats' fields and
 -- expectation combinators for building custom performance assertions.
@@ -124,6 +124,8 @@ module Test.Hspec.BenchGolden.Lenses
     -- * Utilities
   , percentDiff
   , absDiff
+  , toleranceFromExpectation
+  , toleranceValues
   ) where
 
 import Lens.Micro
@@ -444,3 +446,18 @@ percentDiff baseline actual
 -- Returns: @abs(actual - baseline)@
 absDiff :: Double -> Double -> Double
 absDiff baseline actual = abs (actual - baseline)
+
+-- | Extract tolerance description from an expectation for error messages.
+-- For compound expectations (And/Or), returns the first tolerance found.
+toleranceFromExpectation :: Expectation -> (Double, Maybe Double)
+toleranceFromExpectation (ExpectStat _ tol) = toleranceValues tol
+toleranceFromExpectation (And e1 _) = toleranceFromExpectation e1
+toleranceFromExpectation (Or e1 _) = toleranceFromExpectation e1
+
+-- | Extract percentage and optional absolute tolerance from a Tolerance.
+toleranceValues :: Tolerance -> (Double, Maybe Double)
+toleranceValues (Percent pct) = (pct, Nothing)
+toleranceValues (Absolute abs_) = (0, Just abs_)
+toleranceValues (Hybrid pct abs_) = (pct, Just abs_)
+toleranceValues (MustImprove pct) = (pct, Nothing)
+toleranceValues (MustRegress pct) = (pct, Nothing)
