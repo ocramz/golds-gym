@@ -9,7 +9,7 @@
 -- Description : Golden testing for performance benchmarks
 -- Copyright   : (c) 2026
 -- License     : MIT
--- Maintainer  : your.email@example.com
+-- Maintainer  : @ocramz
 --
 -- = Overview
 --
@@ -152,6 +152,7 @@ module Test.Hspec.BenchGolden
 
 import Data.IORef
 import qualified Data.Text as T
+import Lens.Micro ((^.))
 import System.Environment (lookupEnv)
 import Text.Printf (printf)
 import qualified Text.PrettyPrint.Boxes as Box
@@ -368,7 +369,15 @@ runBenchGoldenWithExpectations name action config expectations = do
       let allPass = all (\e -> L.checkExpectation e golden actual) expectations
       in if allPass
          then return $ Pass golden actual warnings
-         else return $ Regression golden actual 100.0 0.0 Nothing  -- Indicate expectation failure
+         else 
+           -- Expectations failed - calculate actual percentage diff for error message
+           let lens = L.metricFor config
+               goldenVal = golden ^. lens
+               actualVal = actual ^. lens
+               meanDiff = if goldenVal == 0 
+                         then 100.0 
+                         else ((actualVal - goldenVal) / goldenVal) * 100
+           in return $ Regression golden actual meanDiff (tolerancePercent config) (absoluteToleranceMs config)
     Regression golden actual pct tol absTol ->
       -- Check if regression is acceptable per expectations
       let allPass = all (\e -> L.checkExpectation e golden actual) expectations
