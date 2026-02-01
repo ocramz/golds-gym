@@ -55,6 +55,39 @@
 -- Without proper evaluation strategies, GHC may optimize away computations
 -- or share results across iterations, making benchmarks meaningless.
 --
+-- = Best Practices: Avoiding Shared Thunks
+--
+-- __CRITICAL:__ When benchmarking with data structures, ensure the data is
+-- reconstructed on each iteration to avoid measuring shared, cached results.
+--
+-- ❌ __Anti-pattern__ (shared list across iterations):
+--
+-- @
+-- benchGolden "sum" $ nf sum [1..1000000]
+-- @
+--
+-- The list @[1..1000000]@ is constructed once and shared across all iterations.
+-- This allocates the entire list in memory, creates GC pressure, and prevents
+-- list fusion. The first iteration evaluates the shared thunk, and subsequent
+-- iterations measure cached results.
+--
+-- ✅ __Correct pattern__ (list reconstructed per iteration):
+--
+-- @
+-- benchGolden "sum" $ nf (\\n -> sum [1..n]) 1000000
+-- @
+--
+-- The lambda wrapper ensures the list is reconstructed on every iteration,
+-- measuring the true cost of both construction and computation.
+--
+-- __Other considerations:__
+--
+-- * Ensure return types are inhabited enough to depend on all computations
+--   (avoid @b ~ ()@ where GHC might optimize away the payload)
+-- * For inlinable functions, ensure full saturation: prefer @nf (\\n -> f n) x@
+--   over @nf f x@ to guarantee inlining and rewrite rules fire
+-- * Use 'NFData' constraints where applicable to ensure deep evaluation
+--
 -- = How It Works
 --
 -- 1. On first run, the benchmark is executed and results are saved to a

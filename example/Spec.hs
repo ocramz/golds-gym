@@ -51,7 +51,22 @@ spec = do
       , tolerancePercent = 20.0  -- Higher tolerance for fast operations
       }
       "sum of list" $
-      nf sum [1..10000 :: Int]
+      nf (\n -> sum [1..n]) (10000 :: Int)
+
+  describe "Best Practices: Avoiding Shared Thunks" $ do
+    -- Lambda wrapper forces list reconstruction on each iteration
+    -- The list [1..n] is rebuilt for every benchmark iteration
+    benchGoldenWith defaultBenchConfig { iterations = 1000 }
+      "proper data structure reconstruction" $
+      nf (\n -> sum [1..n]) (5000 :: Int)
+
+    benchGoldenWith defaultBenchConfig { iterations = 1000 }
+      "function application with parameter" $
+      nf reverse [1..5000 :: Int]
+
+    benchGoldenWith defaultBenchConfig { iterations = 1000 }
+      "nested data structure reconstruction" $
+      nf (\xs -> concat (replicate 100 xs)) [1..50 :: Int]
 
   describe "Robust Statistics Mode" $ do
     -- Benchmark using robust statistics (trimmed mean, MAD)
@@ -89,7 +104,7 @@ spec = do
     -- Hybrid tolerance (default): pass if within ±15% OR ±0.01ms
     benchGoldenWith defaultBenchConfig { iterations = 2000 }
       "hybrid tolerance - fast operation" $
-      nf sum [1..100 :: Int]
+      nf (\n -> sum [1..n]) (100 :: Int)
 
     -- Percentage-only tolerance: disable absolute tolerance
     -- Note: This test may fail occasionally due to measurement noise,
@@ -100,7 +115,7 @@ spec = do
       , iterations = 2000
       }
       "percentage-only tolerance" $
-      nf sum [1..500 :: Int]
+      nf (\n -> sum [1..n]) (500 :: Int)
 
     -- Strict absolute tolerance: 1 microsecond
     benchGoldenWith defaultBenchConfig
@@ -111,49 +126,14 @@ spec = do
       "strict absolute tolerance" $
       nf fib 20
 
-    -- Relaxed absolute tolerance for CI environments
-    benchGoldenWith defaultBenchConfig
-      { absoluteToleranceMs = Just 0.1  -- 100 microseconds
-      , tolerancePercent = 25.0
-      , iterations = 1000
-      }
-      "relaxed tolerance for CI" $
-      nf reverse [1..1000 :: Int]
 
   describe "Lens-Based Expectations (Advanced)" $ do
-    -- -- Median-based comparison instead of mean
-    -- benchGoldenWithExpectation "median-based comparison" 
-    --   defaultBenchConfig { iterations = 1000 }
-    --   [expect _statsMedian (Percent 20.0)]
-    --   $ nf sort [1000, 999..1 :: Int]
-
-    -- -- Compose multiple expectations with AND
-    -- benchGoldenWithExpectation "composed expectations (AND)" 
-    --   defaultBenchConfig { iterations = 1000 }
-    --   [ expect _statsMean (Percent 20.0) &&~
-    --     expect _statsMAD (Percent 100.0)
-    --   ]
-    --   $ nf fib 25
-
-    -- -- Compose multiple expectations with OR
-    -- benchGoldenWithExpectation "composed expectations (OR)" 
-    --   defaultBenchConfig { iterations = 2000 }
-    --   [ expect _statsMedian (Percent 20.0) ||~
-    --     expect _statsMin (Absolute 0.01)
-    --   ]
-    --   $ nf sum [1..500 :: Int]
-
-    -- -- Expect reasonable performance (will pass with normal variance)
-    -- benchGoldenWithExpectation "flexible tolerance" 
-    --   defaultBenchConfig { iterations = 2000 }
-    --   [expect _statsMean (Hybrid 20.0 0.0001)]  -- Wide tolerance for example
-    --   $ whnf (const [1..1000 :: Int]) ()  -- Using whnf for lazy evaluation
 
     -- Hybrid tolerance with custom absolute threshold
     benchGoldenWithExpectation "hybrid tolerance custom" 
       defaultBenchConfig { iterations = 1000 }
-      [expect _statsMean (Hybrid 5.0 0.0001)]  -- ±25% OR ±.1μs
-      $ nf sort [100, 99..1 :: Int]
+      [expect _statsMean (Hybrid 5.0 0.0001)] 
+      $ nf (\n -> sort [n, n-1 .. 1]) (200 :: Int)
 
     -- Use robust statistics lens (trimmed mean)
     benchGoldenWithExpectation "trimmed mean comparison" 
@@ -161,31 +141,6 @@ spec = do
       [expect _statsTrimmedMean (Percent 25.0)]
       $ nf fib 26
 
-  -- describe "Different Evaluation Strategies" $ do
-  --   -- Normal form: fully evaluates entire structure
-  --   benchGoldenWith defaultBenchConfig { iterations = 1000 }
-  --     "nf - deep evaluation" $
-  --     nf (replicate 1000) (42 :: Int)
-
-  --   -- Weak head normal form: evaluates only outermost constructor
-  --   benchGoldenWith defaultBenchConfig { iterations = 1000 }
-  --     "whnf - shallow evaluation" $
-  --     whnf (replicate 1000) (42 :: Int)
-
-  --   -- IO action with normal form result
-  --   benchGoldenWith defaultBenchConfig { iterations = 1000 }
-  --     "nfIO - IO with deep evaluation" $
-  --     nfIO (return $ sum [1..1000 :: Int])
-
-  --   -- IO action with weak head normal form result
-  --   benchGoldenWith defaultBenchConfig { iterations = 1000 }
-  --     "whnfIO - IO with shallow evaluation" $
-  --     whnfIO (return [1..1000 :: Int])
-
-  --   -- Function returning IO with normal form
-  --   benchGoldenWith defaultBenchConfig { iterations = 1000 }
-  --     "nfAppIO - function with IO and deep eval" $
-  --     nfAppIO (\n -> return $ fib n) 20
 
 
 -- | Naive Fibonacci for benchmarking purposes.
