@@ -5,6 +5,7 @@ import Control.Exception (evaluate)
 import Data.List (sort)
 import Test.Hspec
 import Test.Hspec.BenchGolden
+import Test.Hspec.BenchGolden.Lenses
 
 main :: IO ()
 main = hspec spec
@@ -132,6 +133,54 @@ spec = do
       "relaxed tolerance for CI" $ do
       _ <- evaluate $ reverse [1..1000 :: Int]
       return ()
+
+  describe "Lens-Based Expectations (Advanced)" $ do
+    -- Median-based comparison instead of mean
+    benchGoldenWithExpectation "median-based comparison" defaultBenchConfig
+      [expect _statsMedian (Percent 10.0)]
+      $ do
+        _ <- evaluate $ sort [1000, 999..1 :: Int]
+        return ()
+
+    -- Compose multiple expectations with AND
+    benchGoldenWithExpectation "composed expectations (AND)" defaultBenchConfig
+      [ expect _statsMean (Percent 15.0) &&~
+        expect _statsMAD (Percent 50.0)
+      ]
+      $ do
+        _ <- evaluate $ fib 25
+        return ()
+
+    -- Compose multiple expectations with OR
+    benchGoldenWithExpectation "composed expectations (OR)" defaultBenchConfig
+      [ expect _statsMedian (Percent 10.0) ||~
+        expect _statsMin (Absolute 0.01)
+      ]
+      $ do
+        _ <- evaluate $ sum [1..500 :: Int]
+        return ()
+
+    -- Expect reasonable performance (will pass with normal variance)
+    benchGoldenWithExpectation "flexible tolerance" defaultBenchConfig
+      [expect _statsMean (Percent 20.0)]  -- Wide tolerance for example
+      $ do
+        _ <- evaluate $ [1..1000 :: Int]  -- Trivial operation
+        return ()
+
+    -- Hybrid tolerance with custom absolute threshold
+    benchGoldenWithExpectation "hybrid tolerance custom" defaultBenchConfig
+      [expect _statsMean (Hybrid 20.0 0.005)]  -- ±20% OR ±5μs
+      $ do
+        _ <- evaluate $ sort [100, 99..1 :: Int]
+        return ()
+
+    -- Use robust statistics lens (trimmed mean)
+    benchGoldenWithExpectation "trimmed mean comparison" 
+      (defaultBenchConfig { useRobustStatistics = True })
+      [expect _statsTrimmedMean (Percent 20.0)]
+      $ do
+        _ <- evaluate $ fib 26
+        return ()
 
 -- | Naive Fibonacci for benchmarking purposes.
 fib :: Int -> Int
