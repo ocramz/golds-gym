@@ -24,10 +24,6 @@ main = hspec $ do
     benchGolden "list append" $
       nf (\xs -> xs ++ xs) [1..1000]
 
-    -- Weak head normal form (shallow, outermost constructor only)
-    benchGolden "replicate" $
-      whnf (replicate 1000) 42
-
     -- Custom configuration
     benchGoldenWith defaultBenchConfig
       { iterations = 500
@@ -39,14 +35,11 @@ main = hspec $ do
 
 **Evaluation strategies** (required - specify how values are forced):
 - `nf f x` - Force result of `f x` to **normal form** (deep, full evaluation)
-- `whnf f x` - Force result of `f x` to **weak head normal form** (shallow, outermost constructor only)
 - `nfIO action` - Execute IO action and force result to normal form
-- `whnfIO action` - Execute IO action and force result to WHNF
 - `nfAppIO f x` - Apply function, execute resulting IO, force result to normal form
-- `whnfAppIO f x` - Apply function, execute resulting IO, force result to WHNF
 - `io action` - Plain IO action without additional forcing
 
-**Why evaluation strategies matter**: Without forcing, GHC may optimize away computations or share results across iterations, making benchmarks meaningless. Use `nf` for most cases unless you specifically want lazy evaluation (`whnf`).
+**Why evaluation strategies matter**: Without forcing, GHC may optimize away computations or share results across iterations, making benchmarks meaningless. Use `nf` for most cases.
 
 **First run** creates `.golden/<arch>/list-append.golden` with baseline stats.  
 **Subsequent runs** compare against baseline. Test fails if mean time changes beyond tolerance (default: ±15% OR ±0.01ms).

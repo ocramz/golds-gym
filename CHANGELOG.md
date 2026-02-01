@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0]
+
+### Added
+
+- Clarified copyright notice for vendored code from `tasty-bench`, (c) Andrew Lelechenko 2021 -
+
+### Removed
+
+- **BREAKING:** Removed `whnf` (weak head normal form) evaluation combinators, the library is geared towards non-infinite input data
+  - Removed `whnf` - use `nf` instead for pure functions
+  - Removed `whnfIO` - use `nfIO` instead for IO actions
+  - Removed `whnfAppIO` - use `nfAppIO` instead for functions returning IO
+  - Migration: Replace all `whnf*` calls with their `nf*` equivalents
+
 ## [0.4.0]
 
 ### Added
@@ -14,11 +28,8 @@
 
 - **Evaluation strategy combinators** for proper laziness handling
   - `nf` - Force result to normal form (deep evaluation)
-  - `whnf` - Force result to weak head normal form (shallow evaluation)
   - `nfIO` - Normal form for IO actions
-  - `whnfIO` - Weak head normal form for IO actions
   - `nfAppIO` - Normal form for functions returning IO
-  - `whnfAppIO` - WHNF for functions returning IO
   - `io` - Plain IO action (for backward compatibility)
   - Vendored evaluation loops from tasty-bench with attribution
 

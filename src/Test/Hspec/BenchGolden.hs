@@ -33,11 +33,7 @@
 --   describe \"Performance\" $ do
 --     -- Pure function with normal form evaluation
 --     `benchGolden` "list sorting" $
---       `nf` sort [1000, 999..1]
---
---     -- Weak head normal form (lazy evaluation)
---     `benchGolden` "replicate" $
---       `whnf` (replicate 1000) 42
+--       `nf` (\\n -> sort [n, n-1 .. 1]) 1000
 --
 --     -- IO action with result forced to normal form
 --     `benchGolden` "file read" $
@@ -47,9 +43,8 @@
 -- __Evaluation strategies__ control how values are forced:
 --
 -- * 'nf' - Force to normal form (deep evaluation, use for most cases)
--- * 'whnf' - Force to weak head normal form (only outermost constructor is evaluated)
--- * 'nfIO', 'whnfIO' - Variants for IO actions
--- * 'nfAppIO', 'whnfAppIO' - For functions returning IO
+-- * 'nfIO' - Variant for IO actions
+-- * 'nfAppIO' - For functions returning IO
 -- * 'io' - Plain IO action without forcing
 --
 -- Without proper evaluation strategies, GHC may optimize away computations
@@ -197,11 +192,8 @@ module Test.Hspec.BenchGolden
 
     -- * Benchmarkable Constructors
   , nf
-  , whnf
   , nfIO
-  , whnfIO
   , nfAppIO
-  , whnfAppIO
   , io
 
     -- * Low-Level API
@@ -226,7 +218,7 @@ import Test.Hspec.Core.Spec
 import Test.Hspec.BenchGolden.Arch
 import qualified Test.Hspec.BenchGolden.Lenses as L
 import Test.Hspec.BenchGolden.Lenses hiding (Expectation)
-import Test.Hspec.BenchGolden.Runner (runBenchGolden, setAcceptGoldens, setSkipBenchmarks, nf, whnf, nfIO, whnfIO, nfAppIO, whnfAppIO, io)
+import Test.Hspec.BenchGolden.Runner (runBenchGolden, setAcceptGoldens, setSkipBenchmarks, nf, nfIO, nfAppIO, io)
 import Test.Hspec.BenchGolden.Types
 
 -- | Create a benchmark golden test with default configuration.
@@ -242,11 +234,8 @@ import Test.Hspec.BenchGolden.Types
 -- Use evaluation strategy combinators to control how values are forced:
 --
 -- * 'nf' - Normal form (deep evaluation)
--- * 'whnf' - Weak head normal form (shallow evaluation)
 -- * 'nfIO' - Normal form for IO actions
--- * 'whnfIO' - WHNF for IO actions
 -- * 'nfAppIO' - Normal form for functions returning IO
--- * 'whnfAppIO' - WHNF for functions returning IO
 -- * 'io' - Plain IO action (for backward compatibility)
 --
 -- Default configuration:
