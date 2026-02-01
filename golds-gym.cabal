@@ -25,6 +25,7 @@ library
         Test.Hspec.BenchGolden.Types
         Test.Hspec.BenchGolden.Arch
         Test.Hspec.BenchGolden.Runner
+        Test.Hspec.BenchGolden.Lenses
 
     build-depends:
         base >= 4.14 && < 5,
@@ -39,7 +40,8 @@ library
         bytestring >= 0.10 && < 0.13,
         statistics >= 0.16 && < 0.17,
         vector >= 0.12 && < 0.14,
-        boxes >= 0.1 && < 0.2
+        boxes >= 0.1 && < 0.2,
+        microlens >= 0.4 && < 0.6
 
     hs-source-dirs:   src
     default-language: Haskell2010

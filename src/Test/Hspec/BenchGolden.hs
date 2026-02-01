@@ -100,8 +100,31 @@
 --   }
 --   \"benchmark\" $ ...
 -- @
+---- = Lens-Based Expectations (Advanced)
 --
--- = Environment Variables
+-- For custom performance expectations, use lens-based combinators:
+--
+-- @
+-- import Test.Hspec.BenchGolden.Lenses
+--
+-- -- Median-based comparison instead of mean
+-- benchGoldenWithExpectation "median test" defaultBenchConfig
+--   [expect _statsMedian (Percent 10.0)]
+--   myAction
+--
+-- -- Compose multiple expectations
+-- benchGoldenWithExpectation "strict test" defaultBenchConfig
+--   [ expect _statsMean (Percent 15.0) &&~
+--     expect _statsMAD (Percent 50.0)
+--   ]
+--   myAction
+--
+-- -- Expect improvement (must be faster)
+-- benchGoldenWithExpectation "optimization" defaultBenchConfig
+--   [expect _statsMean (MustImprove 10.0)]  -- Must be ≥10% faster
+--   myAction
+-- @
+---- = Environment Variables
 --
 -- * @GOLDS_GYM_ACCEPT=1@ - Regenerate all golden files
 -- * @GOLDS_GYM_SKIP=1@ - Skip all benchmark tests
@@ -113,6 +136,7 @@ module Test.Hspec.BenchGolden
   , benchGoldenWith
   , benchGoldenIO
   , benchGoldenIOWith
+  , benchGoldenWithExpectation
 
     -- * Configuration
   , BenchConfig(..)
@@ -128,6 +152,9 @@ module Test.Hspec.BenchGolden
     -- * Low-Level API
   , runBenchGolden
 
+    -- * Lens-Based Expectations
+  , module Test.Hspec.BenchGolden.Lenses
+
     -- * Re-exports
   , module Test.Hspec.BenchGolden.Arch
   ) where
@@ -141,6 +168,8 @@ import qualified Text.PrettyPrint.Boxes as Box
 import Test.Hspec.Core.Spec
 
 import Test.Hspec.BenchGolden.Arch
+import qualified Test.Hspec.BenchGolden.Lenses as L
+import Test.Hspec.BenchGolden.Lenses hiding (Expectation)
 import Test.Hspec.BenchGolden.Runner (runBenchGolden, setAcceptGoldens, setSkipBenchmarks)
 import Test.Hspec.BenchGolden.Types
 
@@ -226,6 +255,70 @@ benchGoldenIOWith :: BenchConfig -- ^ Configuration parameters
     -> Spec
 benchGoldenIOWith = benchGoldenWith
 
+-- | Create a benchmark golden test with custom lens-based expectations.
+--
+-- This combinator allows you to specify custom performance expectations using
+-- lenses and tolerance combinators. Expectations can be composed using boolean
+-- operators ('&&~', '||~').
+--
+-- Examples:
+--
+-- @
+-- -- Median-based comparison (more robust to outliers)
+-- benchGoldenWithExpectation "median test" defaultBenchConfig
+--   [expect _statsMedian (Percent 10.0)]
+--   myAction
+--
+-- -- Multiple metrics must pass (AND composition)
+-- benchGoldenWithExpectation "strict test" defaultBenchConfig
+--   [ expect _statsMean (Percent 15.0) &&~
+--     expect _statsMAD (Percent 50.0)
+--   ]
+--   myAction
+--
+-- -- Either metric can pass (OR composition)
+-- benchGoldenWithExpectation "flexible test" defaultBenchConfig
+--   [ expect _statsMedian (Percent 10.0) ||~
+--     expect _statsMin (Absolute 0.01)
+--   ]
+--   myAction
+--
+-- -- Expect performance improvement (must be faster)
+-- benchGoldenWithExpectation "optimization" defaultBenchConfig
+--   [expect _statsMean (MustImprove 10.0)]  -- Must be ≥10% faster
+--   myAction
+--
+-- -- Expect controlled regression (for feature additions)
+-- benchGoldenWithExpectation "new feature" defaultBenchConfig
+--   [expect _statsMean (MustRegress 5.0)]  -- Accept 5-20% slowdown
+--   myAction
+--
+-- -- Low variance requirement
+-- benchGoldenWithExpectation "stable perf" defaultBenchConfig
+--   [ expect _statsMean (Percent 15.0) &&~
+--     expect _statsIQR (Absolute 0.1)
+--   ]
+--   myAction
+-- @
+--
+-- Note: Expectations are checked against golden files. On first run, a baseline
+-- is created. Use @GOLDS_GYM_ACCEPT=1@ to regenerate baselines.
+benchGoldenWithExpectation ::
+    String        -- ^ Name of the benchmark
+    -> BenchConfig  -- ^ Configuration parameters
+    -> [L.Expectation]  -- ^ List of expectations (all must pass)
+    -> IO ()       -- ^ The IO action to benchmark
+    -> Spec
+benchGoldenWithExpectation name config expectations action =
+  it name $ BenchGoldenWithExpectations name action config expectations
+
+-- | Data type for benchmarks with custom lens-based expectations.
+data BenchGoldenWithExpectations = BenchGoldenWithExpectations
+  !String        -- Name
+  !(IO ())       -- Action
+  !BenchConfig   -- Config
+  ![L.Expectation] -- Expectations
+
 -- | Instance for BenchGolden without arguments.
 instance Example BenchGolden where
   type Arg BenchGolden = ()
@@ -263,6 +356,68 @@ instance Example (arg -> BenchGolden) where
       result <- runBenchGolden bg
       writeIORef ref (fromBenchResult result)
     readIORef ref
+
+-- | Instance for BenchGoldenWithExpectations (custom expectations).
+instance Example BenchGoldenWithExpectations where
+  type Arg BenchGoldenWithExpectations = ()
+  evaluateExample (BenchGoldenWithExpectations name action config expectations) _params hook _progress = do
+    -- Read environment variables to determine accept/skip flags
+    acceptEnv <- lookupEnv "GOLDS_GYM_ACCEPT"
+    skipEnv <- lookupEnv "GOLDS_GYM_SKIP"
+    
+    let shouldAccept = case acceptEnv of
+          Just "1"    -> True
+          Just "true" -> True
+          Just "yes"  -> True
+          _           -> False
+        shouldSkip = case skipEnv of
+          Just "1"    -> True
+          Just "true" -> True
+          Just "yes"  -> True
+          _           -> False
+    
+    -- Store the flags so Runner can access them
+    setAcceptGoldens shouldAccept
+    setSkipBenchmarks shouldSkip
+    
+    ref <- newIORef (Result "" Success)
+    hook $ \() -> do
+      result <- runBenchGoldenWithExpectations name action config expectations
+      writeIORef ref (fromBenchResultWithExpectations expectations result)
+    readIORef ref
+
+-- | Run a benchmark with custom expectations.
+runBenchGoldenWithExpectations :: String -> IO () -> BenchConfig -> [L.Expectation] -> IO BenchResult
+runBenchGoldenWithExpectations name action config expectations = do
+  -- Convert to BenchGolden and run normally first
+  let bg = BenchGolden name action config
+  result <- runBenchGolden bg
+  
+  -- Then check expectations for Pass/Regression/Improvement results
+  case result of
+    FirstRun stats -> return $ FirstRun stats
+    Pass golden actual warnings ->
+      -- Check all expectations
+      let allPass = all (\e -> L.checkExpectation e golden actual) expectations
+      in if allPass
+         then return $ Pass golden actual warnings
+         else return $ Regression golden actual 100.0 0.0 Nothing  -- Indicate expectation failure
+    Regression golden actual pct tol absTol ->
+      -- Check if regression is acceptable per expectations
+      let allPass = all (\e -> L.checkExpectation e golden actual) expectations
+      in if allPass
+         then return $ Pass golden actual []
+         else return $ Regression golden actual pct tol absTol
+    Improvement golden actual pct tol absTol ->
+      -- Check if improvement satisfies expectations
+      let allPass = all (\e -> L.checkExpectation e golden actual) expectations
+      in if allPass
+         then return $ Pass golden actual []
+         else return $ Improvement golden actual pct tol absTol
+
+-- | Convert expectation-based benchmark result to hspec Result.
+fromBenchResultWithExpectations :: [L.Expectation] -> BenchResult -> Result
+fromBenchResultWithExpectations _expectations = fromBenchResult
 
 -- | Convert a benchmark result to an hspec Result.
 fromBenchResult :: BenchResult -> Result

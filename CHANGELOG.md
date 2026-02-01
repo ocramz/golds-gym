@@ -1,5 +1,35 @@
 # Changelog
 
+## [Upcoming]
+
+### Added
+
+- **Lens-based expectation combinators** for custom performance assertions
+  - New `Test.Hspec.BenchGolden.Lenses` module with van Laarhoven lenses for `GoldenStats` fields
+  - Lenses: `_statsMean`, `_statsMedian`, `_statsTrimmedMean`, `_statsStddev`, `_statsMAD`, `_statsIQR`, `_statsMin`, `_statsMax`
+  - Smart metric selectors: `metricFor` and `varianceFor` automatically choose appropriate lens based on `BenchConfig`
+  - `Expectation` type for composable performance assertions
+  - `Tolerance` variants: `Percent`, `Absolute`, `Hybrid`, `MustImprove`, `MustRegress`
+  - Boolean composition operators: `(&&~)` for AND, `(||~)` for OR
+  - Infix operators: `(@~)` for percentage, `(@<)` for absolute, `(@<<)` for must-improve, `(@>>)` for must-regress
+  - `benchGoldenWithExpectation` combinator for custom lens-based expectations
+  - Enables assertions like "must be 10% faster", "median within 10%", "IQR < 0.1ms"
+
+- **Tolerance helper functions** for manual comparison
+  - `withinPercent`, `withinAbsolute`, `withinHybrid` for tolerance checking
+  - `mustImprove`, `mustRegress` for directional performance expectations
+  - `percentDiff`, `absDiff` utilities
+
+### Changed
+
+- **Refactored comparison logic to use lenses internally** (non-breaking)
+  - `compareStats` now uses `metricFor` instead of if/else branching
+  - `checkVariance` now uses `varianceFor` for cleaner metric selection
+
+### Dependencies
+
+- Added `microlens >= 0.4 && < 0.6`
+
 ## [0.2.0] - 2026-01-30
 
 ### Added

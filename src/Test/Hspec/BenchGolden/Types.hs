@@ -39,6 +39,8 @@ import Data.Text (Text)
 import Data.Time (UTCTime)
 import GHC.Generics (Generic)
 
+-- Note: Expectation type is defined in Lenses module to avoid circular imports
+
 -- | Configuration for a single benchmark golden test.
 data BenchGolden = BenchGolden
   { benchName   :: !String

@@ -60,9 +60,12 @@ import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath ((</>), (<.>))
 import System.IO.Unsafe (unsafePerformIO)
 
+import Lens.Micro ((^.))
+
 import qualified Test.BenchPress as BP
 
 import Test.Hspec.BenchGolden.Arch (detectArchitecture, sanitizeForFilename)
+import Test.Hspec.BenchGolden.Lenses (metricFor, varianceFor)
 import Test.Hspec.BenchGolden.Types
 
 -- | Run a benchmark golden test.
@@ -295,11 +298,10 @@ detectOutliers threshold vec med mad
 -- noise creates large percentage variations despite negligible absolute differences.
 compareStats :: BenchConfig -> GoldenStats -> GoldenStats -> BenchResult
 compareStats config golden actual =
-  let -- Choose comparison metric based on config
-      (goldenValue, actualValue) =
-        if useRobustStatistics config
-          then (statsTrimmedMean golden, statsTrimmedMean actual)
-          else (statsMean golden, statsMean actual)
+  let -- Use lens-based metric selection
+      metric = metricFor config
+      goldenValue = golden ^. metric
+      actualValue = actual ^. metric
 
       -- Calculate percentage difference
       meanDiff = if goldenValue == 0
@@ -338,11 +340,10 @@ compareStats config golden actual =
 -- | Check for variance changes and generate warnings.
 checkVariance :: BenchConfig -> GoldenStats -> GoldenStats -> [Warning]
 checkVariance config golden actual =
-  let -- Use MAD for robust statistics, stddev otherwise
-      (goldenVar, actualVar) =
-        if useRobustStatistics config
-          then (statsMAD golden, statsMAD actual)
-          else (statsStddev golden, statsStddev actual)
+  let -- Use lens-based variance metric selection
+      vLens = varianceFor config
+      goldenVar = golden ^. vLens
+      actualVar = actual ^. vLens
 
       varDiff = if goldenVar == 0
                 then if actualVar == 0 then 0 else 100
