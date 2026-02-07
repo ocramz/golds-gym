@@ -268,23 +268,23 @@ runBenchmark name action config arch =
 
 -- | Run a benchmark with raw timing collection for robust statistics.
 --
--- This function runs multiple "outer" samples, where each sample runs 
--- the benchmarked action N times (the inner loop). The SPEC trick in 
--- the nf/nfIO combinators prevents sharing within each inner loop.
--- We divide the measured time by N to get per-iteration timing.
+-- This function times running all iterations in a single batch, then
+-- divides to get per-iteration timing. The SPEC trick in nf/nfIO
+-- prevents sharing within the batch.
 --
--- This approach ensures accurate measurements even with GHC's -O2 optimizations.
+-- We collect multiple samples by running the full batch multiple times,
+-- ensuring accurate measurements even with GHC's -O2 optimizations.
 runBenchmarkWithRawTimings :: String -> BenchAction -> BenchConfig -> ArchConfig -> IO GoldenStats
 runBenchmarkWithRawTimings _name action config arch = do
-  let samples = iterations config      -- Number of timing samples
-      innerIters = 4 :: Word64        -- Iterations per sample (for SPEC trick)
+  let iters = fromIntegral (iterations config) :: Word64
+      numSamples = 10 :: Int  -- Number of timing samples to collect
   
-  -- Collect raw CPU timings (each is time for innerIters iterations)
-  rawTimings <- forM [1 .. samples] $ \_ -> do
+  -- Collect raw CPU timings (each sample runs all iterations)
+  rawTimings <- forM [1 .. numSamples] $ \_ -> do
     startCpu <- getCPUTime
-    runBenchAction action innerIters  -- Run multiple iterations, SPEC prevents sharing
+    runBenchAction action iters  -- SPEC trick prevents sharing within this call
     endCpu <- getCPUTime
-    pure $ picosToMillis (endCpu - startCpu) / fromIntegral innerIters
+    pure $ picosToMillis (endCpu - startCpu) / fromIntegral iters
   
   let sortedTimings = sort rawTimings
       vec = V.fromList sortedTimings
