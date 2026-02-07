@@ -5,10 +5,11 @@
 ### Added
 
 - **Parameter sweep support** for benchmarking scaling behaviour
-  - `benchGoldenSweep` combinator for simple parameter sweeps with default config
-  - `benchGoldenSweepWith` combinator for sweeps with custom configuration
-  - Individual golden files created per parameter value (e.g., `sort-scaling_n=1000.golden`)
+  - `benchGoldenSweep` combinator for simple parameter sweeps with default config and `benchGoldenSweepWith` combinator for sweeps with custom configuration
+  - Individual golden files created per parameter value (e.g., `sort-scaling_n_1000.golden`)
   - Automatic regression detection per sweep point using existing tolerance logic
+  - NB: Each timing sample now runs multiple inner iterations (leveraging the SPEC trick in `nf`/`nfIO` combinators) and divides by the iteration count
+  - Unified timing path: `runBenchmark` now always uses `runBenchmarkWithRawTimings` for consistent, correct measurements
 
 - **CSV export** for analysis and plotting
   - New `Test.Hspec.BenchGolden.CSV` module
@@ -16,16 +17,9 @@
   - Columns: timestamp, parameter value, mean, stddev, median, min, max, trimmed_mean, mad, iqr
   - Built with `Text.Builder` for efficient serialization
 
-### Fixed
-
-- **Critical timing measurement bug** with GHC -O2 optimization flag
-  - Pure computations were being shared across benchmark iterations, causing incorrect (near-zero) timing measurements
-  - Fix: Each timing sample now runs multiple inner iterations (leveraging the SPEC trick in `nf`/`nfIO` combinators) and divides by the iteration count
-  - Unified timing path: `runBenchmark` now always uses `runBenchmarkWithRawTimings` for consistent, correct measurements
-
 ### Removed
 
-- **benchpress dependency** - timing is now done via `getCPUTime` from base, statistics via the `statistics` package
+- **benchpress dependency** - timing is now done via `getCPUTime` from base, without `benchpress`
 
 ## [0.5.0]
 
