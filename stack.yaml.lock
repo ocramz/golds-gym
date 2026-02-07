@@ -3,14 +3,7 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/topics/lock_files
 
-packages:
-- completed:
-    hackage: benchpress-0.2.3.0@sha256:08d589032632051a2cd5a94661359ae3eb36e11a0040d3632486d0b1a4249051,1336
-    pantry-tree:
-      sha256: b92d4b9fc464ad9ae4bf0936204a6804c0643f162deb244d47d4b6d51b59d72f
-      size: 327
-  original:
-    hackage: benchpress-0.2.3.0
+packages: []
 snapshots:
 - completed:
     sha256: b7dc388c75a62a8a2f1ac753f3bfc3f43a3a2cb58d8a920272cc9a049ff76c62

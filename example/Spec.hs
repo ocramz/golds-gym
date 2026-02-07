@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Example benchmark golden tests demonstrating golds-gym usage.
 module Main (main) where
 
@@ -140,6 +142,30 @@ spec = do
       (defaultBenchConfig { useRobustStatistics = True, iterations = 1000 })
       [expect _statsTrimmedMean (Percent 25.0)]
       $ nf fib 26
+
+  -- ============================================================================
+  -- Parameter Sweeps
+  -- ============================================================================
+  
+  describe "Parameter Sweeps" $ do
+    -- Simple parameter sweep: measure how sort scales with input size
+    -- This produces:
+    --   - Individual golden files: .golden/<arch>/sort-scaling_n=500.golden, etc.
+    --   - Single CSV file: .golden/sort-scaling-<arch>.csv
+    benchGoldenSweep "sort-scaling"
+      (SweepParam "n" [500, 2000, 5000])
+      (\n -> nf sort [n, n-1..1 :: Int])
+    
+    -- Sweep with custom configuration
+    benchGoldenSweepWith
+      defaultBenchConfig
+        { iterations = 500
+        , tolerancePercent = 20.0
+        , warmupIterations = 10
+        }
+      "fib-scaling"
+      (SweepParam "depth" [10, 20, 30])
+      (\depth -> nf fib depth)
 
 
 

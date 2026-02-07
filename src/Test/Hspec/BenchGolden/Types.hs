@@ -33,6 +33,9 @@ module Test.Hspec.BenchGolden.Types
     -- * Benchmark Results
   , BenchResult(..)
   , Warning(..)
+
+    -- * Parameter Sweeps
+  , SweepParam(..)
   ) where
 
 import Data.Aeson
@@ -239,3 +242,26 @@ instance FromJSON ArchConfig where
     <*> v .: "os"
     <*> v .: "cpu"
     <*> v .:? "model"
+
+-- -----------------------------------------------------------------------------
+-- Parameter Sweeps
+-- -----------------------------------------------------------------------------
+
+-- | A parameter to sweep over in a benchmark series.
+--
+-- This allows running the same benchmark with multiple parameter values,
+-- useful for measuring scaling behaviour.
+--
+-- Example:
+--
+-- @
+-- let sizes = SweepParam "n" [1000, 5000, 10000, 50000]
+-- benchGoldenSweep "sort-scaling" defaultBenchConfig sizes $ \\n ->
+--   nf sort [n, n-1..1]
+-- @
+data SweepParam a = SweepParam
+  { paramName   :: !Text
+    -- ^ Name of the parameter (used in CSV column header)
+  , paramValues :: ![a]
+    -- ^ List of values to sweep over
+  } deriving (Show, Eq)
