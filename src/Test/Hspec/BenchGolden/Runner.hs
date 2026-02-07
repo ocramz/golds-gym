@@ -635,10 +635,11 @@ runSweep ::
      Show a
   => String           -- ^ Sweep name
   -> BenchConfig
-  -> SweepParam a     -- ^ Parameter definition
+  -> T.Text           -- ^ Parameter name (for CSV column header)
+  -> [a]              -- ^ Parameter values to sweep over
   -> (a -> BenchAction)  -- ^ Action generator
   -> IO [(a, BenchResult, GoldenStats)]
-runSweep sweepName config SweepParam{..} mkAction = do
+runSweep sweepName config paramName paramValues mkAction = do
   arch <- detectArchitecture
   
   -- Run each parameter value

@@ -21,6 +21,9 @@
 -- The library can be used both to assert that performance does not regress, and to set expectations
 -- for improvements across project versions (see `benchGoldenWithExpectation`).
 --
+-- There are also combinators for parameter sweep benchmarks that generate CSV files for analysis and plotting, 
+-- see `benchGoldenSweep` and `benchGoldenSweepWith`.
+--
 -- = Quick Start
 --
 -- @
@@ -193,7 +196,6 @@ module Test.Hspec.BenchGolden
   , BenchResult(..)
   , Warning(..)
   , ArchConfig(..)
-  , SweepParam(..)
 
     -- * Benchmarkable Constructors
   , nf
@@ -300,9 +302,8 @@ benchGoldenWith config name action =
 --
 -- @
 -- describe "Scaling Tests" $ do
---   benchGoldenSweep "sort-scaling"
---     (SweepParam "n" [1000, 5000, 10000, 50000])
---     (\\n -> nf sort [n, n-1..1])
+--   benchGoldenSweep "sort-scaling" "n" [1000, 5000, 10000, 50000] $
+--     \\n -> nf sort [n, n-1..1]
 -- @
 --
 -- This produces:
@@ -312,7 +313,8 @@ benchGoldenWith config name action =
 benchGoldenSweep ::
      Show a
   => String         -- ^ Sweep name (used for CSV filename and golden file prefix)
-  -> SweepParam a   -- ^ Parameter to sweep over
+  -> T.Text         -- ^ Parameter name (for CSV column header)
+  -> [a]            -- ^ Parameter values to sweep over
   -> (a -> BenchAction)  -- ^ Action parameterized by sweep value
   -> Spec
 benchGoldenSweep = benchGoldenSweepWith defaultBenchConfig
@@ -325,9 +327,8 @@ benchGoldenSweep = benchGoldenSweepWith defaultBenchConfig
 -- describe "Performance Scaling" $ do
 --   benchGoldenSweepWith
 --     defaultBenchConfig { iterations = 500, tolerancePercent = 10.0 }
---     "algorithm-scaling"
---     (SweepParam "size" [100, 500, 1000, 5000])
---     (\\size -> nf myAlgorithm (generateInput size))
+--     "algorithm-scaling" "size" [100, 500, 1000, 5000] $
+--     \\size -> nf myAlgorithm (generateInput size)
 -- @
 --
 -- The CSV file includes columns for timestamp, parameter value, and all
@@ -336,23 +337,25 @@ benchGoldenSweepWith ::
      Show a
   => BenchConfig    -- ^ Configuration parameters
   -> String         -- ^ Sweep name
-  -> SweepParam a   -- ^ Parameter to sweep over
+  -> T.Text         -- ^ Parameter name (for CSV column header)
+  -> [a]            -- ^ Parameter values to sweep over
   -> (a -> BenchAction)  -- ^ Action parameterized by sweep value
   -> Spec
-benchGoldenSweepWith config sweepName param mkAction =
-  it (sweepName ++ " [sweep]") $ BenchGoldenSweep sweepName config param mkAction
+benchGoldenSweepWith config sweepName paramName paramValues mkAction =
+  it (sweepName ++ " [sweep]") $ BenchGoldenSweep sweepName config paramName paramValues mkAction
 
 -- | Internal type for sweep benchmarks.
 data BenchGoldenSweep a = BenchGoldenSweep
   !String            -- Sweep name
   !BenchConfig       -- Config
-  !(SweepParam a)    -- Parameter
+  !T.Text            -- Parameter name
+  ![a]               -- Parameter values
   !(a -> BenchAction) -- Action generator
 
 -- | Instance for sweep benchmarks.
 instance Show a => Example (BenchGoldenSweep a) where
   type Arg (BenchGoldenSweep a) = ()
-  evaluateExample (BenchGoldenSweep sweepName config param mkAction) _params hook _progress = do
+  evaluateExample (BenchGoldenSweep sweepName config paramName paramValues mkAction) _params hook _progress = do
     -- Read environment variables to determine accept/skip flags
     acceptEnv <- lookupEnv "GOLDS_GYM_ACCEPT"
     skipEnv <- lookupEnv "GOLDS_GYM_SKIP"
@@ -374,13 +377,13 @@ instance Show a => Example (BenchGoldenSweep a) where
     
     ref <- newIORef (Result "" Success)
     hook $ \() -> do
-      results <- runSweep sweepName config param mkAction
-      writeIORef ref (fromSweepResults sweepName param results)
+      results <- runSweep sweepName config paramName paramValues mkAction
+      writeIORef ref (fromSweepResults sweepName paramName paramValues results)
     readIORef ref
 
 -- | Convert sweep results to hspec Result.
-fromSweepResults :: Show a => String -> SweepParam a -> [(a, BenchResult, GoldenStats)] -> Result
-fromSweepResults sweepName SweepParam{..} results =
+fromSweepResults :: Show a => String -> T.Text -> [a] -> [(a, BenchResult, GoldenStats)] -> Result
+fromSweepResults sweepName paramName paramValues results =
   let -- Check if any point regressed
       regressions = [(pv, r) | (pv, r@(Regression _ _ _ _ _), _) <- results]
       firstRuns = [pv | (pv, FirstRun _, _) <- results]

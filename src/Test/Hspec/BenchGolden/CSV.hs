@@ -16,7 +16,7 @@
 -- The CSV includes columns for:
 --
 -- * @timestamp@ - When the benchmark was run (ISO 8601 format)
--- * @param_name@ - The name of the sweep parameter (from 'SweepParam')
+-- * @param_name@ - The name of the sweep parameter
 -- * @param_value@ - The value of the parameter for this row
 -- * @mean_ms@ - Mean execution time in milliseconds
 -- * @stddev_ms@ - Standard deviation in milliseconds

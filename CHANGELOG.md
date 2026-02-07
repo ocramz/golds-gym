@@ -5,7 +5,6 @@
 ### Added
 
 - **Parameter sweep support** for benchmarking scaling behaviour
-  - `SweepParam a` type for defining parameters to sweep over
   - `benchGoldenSweep` combinator for simple parameter sweeps with default config
   - `benchGoldenSweepWith` combinator for sweeps with custom configuration
   - Individual golden files created per parameter value (e.g., `sort-scaling_n=1000.golden`)

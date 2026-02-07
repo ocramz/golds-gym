@@ -152,9 +152,8 @@ spec = do
     -- This produces:
     --   - Individual golden files: .golden/<arch>/sort-scaling_n=500.golden, etc.
     --   - Single CSV file: .golden/sort-scaling-<arch>.csv
-    benchGoldenSweep "sort-scaling"
-      (SweepParam "n" [500, 2000, 5000])
-      (\n -> nf sort [n, n-1..1 :: Int])
+    benchGoldenSweep "sort-scaling" "n" [500, 2000, 5000] $
+      \n -> nf sort [n, n-1..1 :: Int]
     
     -- Sweep with custom configuration
     benchGoldenSweepWith
@@ -163,9 +162,8 @@ spec = do
         , tolerancePercent = 20.0
         , warmupIterations = 10
         }
-      "fib-scaling"
-      (SweepParam "depth" [10, 20, 30])
-      (\depth -> nf fib depth)
+      "fib-scaling" "depth" [10, 20, 30] $
+      \depth -> nf fib depth
 
 
 
