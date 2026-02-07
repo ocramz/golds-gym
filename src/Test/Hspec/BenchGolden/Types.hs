@@ -239,3 +239,5 @@ instance FromJSON ArchConfig where
     <*> v .: "os"
     <*> v .: "cpu"
     <*> v .:? "model"
+
+

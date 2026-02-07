@@ -4,6 +4,8 @@
 
 Golden testing for performance benchmarks. Save timing baselines on first run, compare against them on subsequent runs.
 
+The library was originally inspired by (and dependent on) `benchpress`, but now has independent measurement routines.
+
 **Key Features:**
 - Architecture-specific baselines (different hardware = different golden files)
 - Hybrid tolerance (handles both fast <1ms and slow operations)

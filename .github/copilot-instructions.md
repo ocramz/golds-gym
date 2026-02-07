@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`golds-gym` is a Haskell golden testing framework for performance benchmarks, built on hspec and benchpress. It saves benchmark timing baselines to architecture-specific JSON files and compares subsequent runs against these baselines with configurable tolerance.
+`golds-gym` is a Haskell golden testing framework for performance benchmarks, built on hspec. It saves benchmark timing baselines to architecture-specific JSON files and compares subsequent runs against these baselines with configurable tolerance.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ Test.Hspec.BenchGolden          -- Main API: benchGolden, benchGoldenWith combin
 └── Runner.hs                   -- Benchmark execution, golden file I/O, comparison logic
 ```
 
-**Data flow**: User calls `benchGolden "name" action` → Runner executes with benchpress → Stats saved to `.golden/<arch-id>/<name>.golden` (JSON) → Future runs compare against baseline using `tolerancePercent`.
+**Data flow**: User calls `benchGolden "name" action` → Runner executes benchmark with CPU timing → Stats saved to `.golden/<arch-id>/<name>.golden` (JSON) → Future runs compare against baseline using `tolerancePercent`.
 
 ## Build & Test Commands
 
@@ -22,6 +22,12 @@ make build          # Build with stack
 make test           # Run benchmark tests
 make docs           # Generate Haddock documentation
 ```
+
+## Workflow
+
+For understanding and debugging issues, produce ad-hoc programs that import and use the library directly, e.g., `example/Bug123.hs` with custom benchmarks.  Do not use GHCi or REPL for this, as it may not reflect real benchmark conditions.
+
+
 
 ## Code Conventions
 
@@ -62,5 +68,5 @@ Example tests in [example/Spec.hs](example/Spec.hs) demonstrate:
 ## Key Dependencies
 
 - **hspec-core** (2.10+): Test framework integration
-- **benchpress** (0.2+): Timing measurement (`BP.benchmark`, `BP.mean`, etc.)
+- **statistics**: Statistical calculations (mean, stddev, etc.)
 - **aeson**: JSON serialization of golden files

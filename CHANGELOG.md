@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.6.0]
+
+### Added
+
+- **Parameter sweep support** for benchmarking scaling behaviour
+  - `benchGoldenSweep` combinator for simple parameter sweeps with default config and `benchGoldenSweepWith` combinator for sweeps with custom configuration
+  - Individual golden files created per parameter value (e.g., `sort-scaling_n_1000.golden`)
+  - Automatic regression detection per sweep point using existing tolerance logic
+  - NB: Each timing sample now runs multiple inner iterations (leveraging the SPEC trick in `nf`/`nfIO` combinators) and divides by the iteration count
+  - Unified timing path: `runBenchmark` now always uses `runBenchmarkWithRawTimings` for consistent, correct measurements
+
+- **CSV export** for analysis and plotting
+  - New `Test.Hspec.BenchGolden.CSV` module
+  - Single CSV file per sweep with architecture in filename (e.g., `sort-scaling-aarch64-darwin-Apple_M1.csv`)
+  - Columns: timestamp, parameter value, mean, stddev, median, min, max, trimmed_mean, mad, iqr
+  - Built with `Text.Builder` for efficient serialization
+
+### Removed
+
+- **benchpress dependency** - timing is now done via `getCPUTime` from base, without `benchpress`
+
 ## [0.5.0]
 
 ### Added

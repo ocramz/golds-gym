@@ -14,12 +14,15 @@
 -- = Overview
 --
 -- @golds-gym@ is a framework for golden testing of performance benchmarks.
--- It integrates with hspec and uses benchpress for lightweight timing measurements.
+-- It integrates with hspec and uses CPU time measurements for benchmarking.
 --
 -- Benchmarks can use robust statistics to mitigate the impact of outliers.
 --
 -- The library can be used both to assert that performance does not regress, and to set expectations
 -- for improvements across project versions (see `benchGoldenWithExpectation`).
+--
+-- There are also combinators for parameter sweep benchmarks that generate CSV files for analysis and plotting, 
+-- see `benchGoldenSweep` and `benchGoldenSweepWith`.
 --
 -- = Quick Start
 --
@@ -178,6 +181,10 @@ module Test.Hspec.BenchGolden
   , benchGoldenWith
   , benchGoldenWithExpectation
 
+    -- * Parameter Sweeps
+  , benchGoldenSweep
+  , benchGoldenSweepWith
+
     -- * Configuration
   , BenchConfig(..)
   , defaultBenchConfig
@@ -218,7 +225,7 @@ import Test.Hspec.Core.Spec
 import Test.Hspec.BenchGolden.Arch
 import qualified Test.Hspec.BenchGolden.Lenses as L
 import Test.Hspec.BenchGolden.Lenses hiding (Expectation)
-import Test.Hspec.BenchGolden.Runner (runBenchGolden, setAcceptGoldens, setSkipBenchmarks, nf, nfIO, nfAppIO, io)
+import Test.Hspec.BenchGolden.Runner (runBenchGolden, runSweep, setAcceptGoldens, setSkipBenchmarks, nf, nfIO, nfAppIO, io)
 import Test.Hspec.BenchGolden.Types
 
 -- | Create a benchmark golden test with default configuration.
@@ -284,6 +291,125 @@ benchGoldenWith config name action =
     , benchAction = action
     , benchConfig = config
     }
+
+-- | Create a parameter sweep benchmark with default configuration.
+--
+-- This combinator runs the same benchmark with multiple parameter values,
+-- saving individual golden files for each point and producing a single CSV
+-- file for analysis and plotting.
+--
+-- Example:
+--
+-- @
+-- describe "Scaling Tests" $ do
+--   benchGoldenSweep "sort-scaling" "n" [1000, 5000, 10000, 50000] $
+--     \\n -> nf sort [n, n-1..1]
+-- @
+--
+-- This produces:
+--
+-- * Golden files: @.golden\/\<arch\>\/sort-scaling_n=1000.golden@, etc.
+-- * CSV file: @.golden\/sort-scaling-\<arch\>.csv@
+benchGoldenSweep ::
+     Show a
+  => String         -- ^ Sweep name (used for CSV filename and golden file prefix)
+  -> T.Text         -- ^ Parameter name (for CSV column header)
+  -> [a]            -- ^ Parameter values to sweep over
+  -> (a -> BenchAction)  -- ^ Action parameterized by sweep value
+  -> Spec
+benchGoldenSweep = benchGoldenSweepWith defaultBenchConfig
+
+-- | Create a parameter sweep benchmark with custom configuration.
+--
+-- Example:
+--
+-- @
+-- describe "Performance Scaling" $ do
+--   benchGoldenSweepWith
+--     defaultBenchConfig { iterations = 500, tolerancePercent = 10.0 }
+--     "algorithm-scaling" "size" [100, 500, 1000, 5000] $
+--     \\size -> nf myAlgorithm (generateInput size)
+-- @
+--
+-- The CSV file includes columns for timestamp, parameter value, and all
+-- standard statistics (mean, stddev, median, min, max, etc.).
+benchGoldenSweepWith ::
+     Show a
+  => BenchConfig    -- ^ Configuration parameters
+  -> String         -- ^ Sweep name
+  -> T.Text         -- ^ Parameter name (for CSV column header)
+  -> [a]            -- ^ Parameter values to sweep over
+  -> (a -> BenchAction)  -- ^ Action parameterized by sweep value
+  -> Spec
+benchGoldenSweepWith config sweepName paramName paramValues mkAction =
+  it (sweepName ++ " [sweep]") $ BenchGoldenSweep sweepName config paramName paramValues mkAction
+
+-- | Internal type for sweep benchmarks.
+data BenchGoldenSweep a = BenchGoldenSweep
+  !String            -- Sweep name
+  !BenchConfig       -- Config
+  !T.Text            -- Parameter name
+  ![a]               -- Parameter values
+  !(a -> BenchAction) -- Action generator
+
+-- | Instance for sweep benchmarks.
+instance Show a => Example (BenchGoldenSweep a) where
+  type Arg (BenchGoldenSweep a) = ()
+  evaluateExample (BenchGoldenSweep sweepName config paramName paramValues mkAction) _params hook _progress = do
+    -- Read environment variables to determine accept/skip flags
+    acceptEnv <- lookupEnv "GOLDS_GYM_ACCEPT"
+    skipEnv <- lookupEnv "GOLDS_GYM_SKIP"
+    
+    let shouldAccept = case acceptEnv of
+          Just "1"    -> True
+          Just "true" -> True
+          Just "yes"  -> True
+          _           -> False
+        shouldSkip = case skipEnv of
+          Just "1"    -> True
+          Just "true" -> True
+          Just "yes"  -> True
+          _           -> False
+    
+    -- Store the flags so Runner can access them
+    setAcceptGoldens shouldAccept
+    setSkipBenchmarks shouldSkip
+    
+    ref <- newIORef (Result "" Success)
+    hook $ \() -> do
+      results <- runSweep sweepName config paramName paramValues mkAction
+      writeIORef ref (fromSweepResults sweepName paramName paramValues results)
+    readIORef ref
+
+-- | Convert sweep results to hspec Result.
+fromSweepResults :: Show a => String -> T.Text -> [a] -> [(a, BenchResult, GoldenStats)] -> Result
+fromSweepResults sweepName paramName paramValues results =
+  let -- Check if any point regressed
+      regressions = [(pv, r) | (pv, r@(Regression _ _ _ _ _), _) <- results]
+      firstRuns = [pv | (pv, FirstRun _, _) <- results]
+      
+      nPoints = length paramValues
+      
+  in case regressions of
+     ((pv, Regression golden actual pct tol absTol) : _) ->
+       let toleranceDesc :: String
+           toleranceDesc = case absTol of
+             Nothing -> printf "tolerance: %.1f%%" tol
+             Just absMs -> printf "tolerance: %.1f%% or %.3f ms" tol absMs
+           message = printf "Sweep '%s': regression at %s=%s\nMean time increased by %.1f%% (%s)\n\n%s"
+                       sweepName (T.unpack paramName) (show pv) pct toleranceDesc
+                       (formatRegression golden actual)
+       in Result message (Failure Nothing (Reason message))
+     _ ->
+       if not (null firstRuns)
+       then
+         let info = printf "Sweep '%s': baselines created for %d point(s)\nCSV written with %d row(s)"
+                      sweepName (length firstRuns) nPoints
+         in Result info Success
+       else
+         let info = printf "Sweep '%s': all %d point(s) passed\nCSV written with %d row(s)"
+                      sweepName nPoints nPoints
+         in Result info Success
 
 
 -- | Create a benchmark golden test with custom lens-based expectations.

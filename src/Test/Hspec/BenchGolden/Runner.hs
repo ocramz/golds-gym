@@ -38,6 +38,10 @@ module Test.Hspec.BenchGolden.Runner
   , runBenchmark
   , runBenchmarkWithRawTimings
 
+    -- * Parameter Sweeps
+  , runSweepPoint
+  , runSweep
+
     -- * Golden File Operations
   , readGoldenFile
   , writeGoldenFile
@@ -71,7 +75,7 @@ module Test.Hspec.BenchGolden.Runner
 
 import Control.DeepSeq (NFData, rnf)
 import Control.Exception (evaluate)
-import Control.Monad (when, replicateM_)
+import Control.Monad (when, replicateM_, forM)
 import Data.Aeson (eitherDecodeFileStrict, encodeFile)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (sort)
@@ -88,9 +92,8 @@ import GHC.Exts (SPEC(..))
 
 import Lens.Micro ((^.))
 
-import qualified Test.BenchPress as BP
-
 import Test.Hspec.BenchGolden.Arch (detectArchitecture, sanitizeForFilename)
+import Test.Hspec.BenchGolden.CSV (writeSweepCSV)
 import Test.Hspec.BenchGolden.Lenses (metricFor, varianceFor)
 import Test.Hspec.BenchGolden.Types
 
@@ -255,42 +258,35 @@ runBenchGolden BenchGolden{..} = do
               return result
 
 -- | Run a benchmark and collect statistics.
+--
+-- Uses raw timing collection with proper inner iteration counts to ensure
+-- the SPEC trick in nf/nfIO prevents thunk sharing.
 runBenchmark :: String -> BenchAction -> BenchConfig -> ArchConfig -> IO GoldenStats
-runBenchmark _name action config arch = do
-  if useRobustStatistics config
-    then runBenchmarkWithRawTimings _name action config arch
-    else do
-      -- Use benchpress for standard statistics
-      (cpuStats, _wallStats) <- BP.benchmark
-        (iterations config)
-        (pure ())                    -- setup
-        (const $ runBenchAction action 1)  -- action: run 1 iteration
-        (const $ pure ())            -- teardown
-
-      now <- getCurrentTime
-
-      return GoldenStats
-        { statsMean        = BP.mean cpuStats
-        , statsStddev      = BP.stddev cpuStats
-        , statsMedian      = BP.median cpuStats
-        , statsMin         = BP.min cpuStats
-        , statsMax         = BP.max cpuStats
-        , statsPercentiles = BP.percentiles cpuStats
-        , statsArch        = archId arch
-        , statsTimestamp   = now
-        , statsTrimmedMean = 0.0  -- Not calculated in non-robust mode
-        , statsMAD         = 0.0
-        , statsIQR         = 0.0
-        , statsOutliers    = []
-        }
+runBenchmark name action config arch =
+  -- Always use the raw timing path since it correctly handles SPEC
+  runBenchmarkWithRawTimings name action config arch
 
 -- | Run a benchmark with raw timing collection for robust statistics.
+--
+-- This function times running all iterations in a single batch, then
+-- divides to get per-iteration timing. The SPEC trick in nf/nfIO
+-- prevents sharing within the batch.
+--
+-- We collect multiple samples by running the full batch multiple times,
+-- ensuring accurate measurements even with GHC's -O2 optimizations.
 runBenchmarkWithRawTimings :: String -> BenchAction -> BenchConfig -> ArchConfig -> IO GoldenStats
 runBenchmarkWithRawTimings _name action config arch = do
-  -- Collect raw CPU timings
-  timings <- mapM (const $ measureCPUTimeForAction action) [1 .. iterations config]
+  let iters = fromIntegral (iterations config) :: Word64
+      numSamples = 10 :: Int  -- Number of timing samples to collect
   
-  let sortedTimings = sort timings
+  -- Collect raw CPU timings (each sample runs all iterations)
+  rawTimings <- forM [1 .. numSamples] $ \_ -> do
+    startCpu <- getCPUTime
+    runBenchAction action iters  -- SPEC trick prevents sharing within this call
+    endCpu <- getCPUTime
+    pure $ picosToMillis (endCpu - startCpu) / fromIntegral iters
+  
+  let sortedTimings = sort rawTimings
       vec = V.fromList sortedTimings
       
       -- Standard statistics
@@ -303,7 +299,7 @@ runBenchmarkWithRawTimings _name action config arch = do
       min' = V.minimum vec
       max' = V.maximum vec
       
-      -- Percentiles (matching benchpress format)
+      -- Percentiles
       percentiles' = [(p, quantile p vec) | p <- [50, 66, 75, 80, 90, 95, 98, 99, 100]]
       
       -- Robust statistics
@@ -326,13 +322,6 @@ runBenchmarkWithRawTimings _name action config arch = do
     , statsOutliers    = outliers'
     }
   where
-    measureCPUTimeForAction act = do
-      startCpu <- getCPUTime
-      runBenchAction act 1  -- Run the action once
-      endCpu <- getCPUTime
-      let cpuTime = picosToMillis (endCpu - startCpu)
-      return cpuTime
-    
     picosToMillis :: Integer -> Double
     picosToMillis t = realToFrac t / (10^(9 :: Int))
     
@@ -562,3 +551,105 @@ shouldUpdateGolden = readIORef acceptGoldensRef
 -- @
 shouldSkipBenchmarks :: IO Bool
 shouldSkipBenchmarks = readIORef skipBenchmarksRef
+
+-- -----------------------------------------------------------------------------
+-- Parameter Sweeps
+-- -----------------------------------------------------------------------------
+
+-- | Run a single point of a parameter sweep.
+--
+-- This is similar to 'runBenchGolden' but returns the 'GoldenStats' along
+-- with the 'BenchResult', allowing the caller to accumulate stats for CSV export.
+--
+-- Each point is saved to its own golden file with the parameter value
+-- included in the filename (e.g., @sort-scaling_n=1000.golden@).
+runSweepPoint ::
+     Show a
+  => String       -- ^ Base sweep name
+  -> BenchConfig
+  -> T.Text       -- ^ Parameter name
+  -> a            -- ^ Parameter value
+  -> BenchAction
+  -> IO (BenchResult, GoldenStats)
+runSweepPoint sweepName config paramName paramValue action = do
+  let pointName = sweepName ++ "_" ++ T.unpack paramName ++ "=" ++ show paramValue
+
+  -- Run the benchmark (this writes golden/actual files via runBenchGolden logic)
+  skip <- shouldSkipBenchmarks
+  if skip
+    then do
+      now <- getCurrentTime
+      arch <- detectArchitecture
+      let dummyStats = GoldenStats 0 0 0 0 0 [] (archId arch) now 0 0 0 []
+      return (Pass dummyStats dummyStats [], dummyStats)
+    else do
+      arch <- detectArchitecture
+      let archDir = T.unpack $ archId arch
+
+      -- Create output directory
+      let dir = outputDir config </> archDir
+      createDirectoryIfMissing True dir
+
+      -- Run warm-up iterations
+      when (warmupIterations config > 0) $
+        runBenchAction action (fromIntegral $ warmupIterations config)
+
+      -- Run the actual benchmark
+      actualStats <- runBenchmark pointName action config arch
+
+      -- Write actual results
+      writeActualFile (outputDir config) archDir pointName actualStats
+
+      -- Check if we should force update
+      update <- shouldUpdateGolden
+
+      -- Read or create golden file
+      let goldenPath = getGoldenPath (outputDir config) archDir pointName
+      goldenExists <- doesFileExist goldenPath
+
+      if update || not goldenExists
+        then do
+          -- First run or forced update: create/update golden
+          writeGoldenFile (outputDir config) archDir pointName actualStats
+          return (FirstRun actualStats, actualStats)
+        else do
+          -- Compare against existing golden
+          goldenResult <- readGoldenFile goldenPath
+          case goldenResult of
+            Left err -> error $ "Failed to read golden file: " ++ err
+            Right goldenStats -> do
+              let result = compareStats config goldenStats actualStats
+              return (result, actualStats)
+
+-- | Run a full parameter sweep and write CSV output.
+--
+-- This runs benchmarks for all parameter values, saves individual golden
+-- files, and writes a single CSV file with all results for analysis.
+--
+-- The CSV file is placed at:
+--
+-- @
+-- \<outputDir\>/\<sweep-name\>-\<arch-id\>.csv
+-- @
+runSweep ::
+     Show a
+  => String           -- ^ Sweep name
+  -> BenchConfig
+  -> T.Text           -- ^ Parameter name (for CSV column header)
+  -> [a]              -- ^ Parameter values to sweep over
+  -> (a -> BenchAction)  -- ^ Action generator
+  -> IO [(a, BenchResult, GoldenStats)]
+runSweep sweepName config paramName paramValues mkAction = do
+  arch <- detectArchitecture
+  
+  -- Run each parameter value
+  results <- forM paramValues $ \paramVal -> do
+    let action = mkAction paramVal
+    (result, stats) <- runSweepPoint sweepName config paramName paramVal action
+    return (paramVal, result, stats)
+  
+  -- Write CSV with all results
+  let csvRows = [(T.pack (show pv), stats) | (pv, _, stats) <- results]
+  writeSweepCSV (outputDir config) (archId arch) sweepName paramName csvRows
+  
+  return results
